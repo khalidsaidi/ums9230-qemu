@@ -33,6 +33,6 @@ EOF
 mkdir -p "$QEMU_DIR/build"
 cd "$QEMU_DIR/build"
 ../configure --target-list=aarch64-softmmu --without-default-features \
-  --enable-pl011 --enable-arm-gicv3 --disable-tools --disable-docs
+  --disable-tools --disable-docs
 ninja qemu-system-aarch64
 echo "built: $QEMU_DIR/build/qemu-system-aarch64"
