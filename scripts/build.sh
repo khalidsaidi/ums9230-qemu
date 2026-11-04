@@ -1,12 +1,17 @@
 #!/bin/sh
-# Clone QEMU, integrate ums9230.c, and build qemu-system-aarch64 (aarch64 only).
+# Clone QEMU (pinned), integrate ums9230.c, and build qemu-system-aarch64 (aarch64 only).
 set -e
 cd "$(dirname "$0")/.."
 QEMU_DIR="${QEMU_DIR:-qemu}"
+# QEMU revision this machine was developed against.
+# (Newer QEMU removed ARMCPU.start_secure_el1, which ums9230.c relies on.)
+QEMU_PIN="05f8e4662ad3976d64d6dfa2fdfa0ac6d28cbaa2"
 
 if [ ! -d "$QEMU_DIR" ]; then
   git clone --depth 1 https://gitlab.com/qemu-project/qemu.git "$QEMU_DIR"
 fi
+git -C "$QEMU_DIR" fetch --depth 1 origin "$QEMU_PIN" 2>/dev/null || git -C "$QEMU_DIR" fetch origin "$QEMU_PIN" 2>/dev/null || true
+git -C "$QEMU_DIR" checkout -q "$QEMU_PIN" 2>/dev/null || echo "warning: could not pin QEMU to $QEMU_PIN"
 
 cp ums9230.c "$QEMU_DIR/hw/arm/ums9230.c"
 
