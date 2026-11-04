@@ -280,7 +280,7 @@ static void inject_vboot(void *opaque)
     W64(PA + 0x7000, 1);                          /* refcount (start >0 so release skips free) */
     W64(PA + 0x7000 + 8, 0xffffffffe004ac44ULL); /* VBOOT_VERIFY_IMG handler entry */
     W64(PA + 0x7000 + 0xa8, 0xffffffffe0700000ULL); /* vbmeta structure */
-    W64(0x80700000ULL + 0x18, 0xffffffffe0700100ULL); /* list-next */
+    /* (list-next write removed: it was clobbering vbmeta[0x18..0x1f], the aux block size) */
 
     /* verify-context object so 0x4a6d0 calls 0x45d88 (the RSA verify).
      * entry[-0x30] -> VC ; VC[+0x38] = flags (bit0=1 -> do verify) ; VC[+0x50] = verify state */
@@ -351,13 +351,13 @@ static void inject_vboot(void *opaque)
     /* force version_major != 1 so avb_vbmeta_image_verify returns 3 (ERROR_VERIFICATION -> -11).
      * raw vbmeta has version_major=0x01000000 (BE); bswap32 -> 1 -> version passes.
      * set it to 0x02000000 so bswap32 -> 2 -> version != 1 -> 3. */
-    W64(0x80700004ULL, 0x02000000ULL);
+    /* W64(0x80700004ULL, 0x02000000ULL);  // DISABLED: let version==1 pass and reach the hash+RSA path */
 
     /* drive avb_vbmeta_image_verify (0x6ed70) directly with the loaded vbmeta.
      * x0 = vbmeta data ; w1 = size ; x2 = hash out ; x3 = hash_size out ; x4 = 0 */
     cpu->env.pstate = 0x3C5;            /* EL1h + DAIF masked (keep interrupts from clobbering regs) */
     cpu->env.xregs[0] = 0xffffffffe0700000ULL; /* vbmeta data (VA) */
-    cpu->env.xregs[1] = 0x1000;         /* size */
+    cpu->env.xregs[1] = 0x100000;        /* size (full vbmeta-stock.img; pubkey+aux live past 0x1000) */
     cpu->env.xregs[2] = VA + 0xb000;    /* hash output ptr */
     cpu->env.xregs[3] = VA + 0xb008;    /* hash size output ptr */
     cpu->env.xregs[4] = 0;              /* is_chained_vbmeta */
@@ -380,7 +380,7 @@ static void inject_vboot(void *opaque)
 static void dump_regs(void *opaque)
 {
     ARMCPU *cpu = ARM_CPU(opaque);
-    uint64_t pte = 0, pte2 = 0, result = 0, hash = 0, hashsz = 0, p0 = 0, avb = 0, cmp = 0;
+    uint64_t pte = 0, pte2 = 0, result = 0, hash = 0, hashsz = 0, p0 = 0, avb = 0, cmp = 0, auth = 0, aux = 0, raw = 0, rawaux = 0, algo = 0, meta = 0;
     address_space_read(&address_space_memory, 0x80356018, MEMTXATTRS_UNSPECIFIED, &pte, 8);
     address_space_read(&address_space_memory, 0x80381528, MEMTXATTRS_UNSPECIFIED, &pte2, 8);
     address_space_read(&address_space_memory, 0x80700000, MEMTXATTRS_UNSPECIFIED, &result, 8);
@@ -390,15 +390,20 @@ static void dump_regs(void *opaque)
     address_space_read(&address_space_memory, 0x8060b018, MEMTXATTRS_UNSPECIFIED, &p0, 8);
     address_space_read(&address_space_memory, 0x800a5d78, MEMTXATTRS_UNSPECIFIED, &avb, 8);
     address_space_read(&address_space_memory, 0x8060c004, MEMTXATTRS_UNSPECIFIED, &result, 4);
-    address_space_read(&address_space_memory, 0x8060c040, MEMTXATTRS_UNSPECIFIED, &cmp, 4);
-    fprintf(stderr, "[DBG] PC=0x%lx X0=0x%lx(%ld) ESR=0x%lx EL=%d ELR=0x%lx FAR=0x%lx hash=0x%lx L1=0x%lx L3=0x%lx p0=0x%lx avb=0x%lx cmp=0x%lx ver=0x%lx\n",
+    address_space_read(&address_space_memory, 0x8060c00c, MEMTXATTRS_UNSPECIFIED, &auth, 8);
+    address_space_read(&address_space_memory, 0x8060c014, MEMTXATTRS_UNSPECIFIED, &aux, 8);
+    address_space_read(&address_space_memory, 0x80700000, MEMTXATTRS_UNSPECIFIED, &raw, 8);
+    address_space_read(&address_space_memory, 0x80700014, MEMTXATTRS_UNSPECIFIED, &rawaux, 8);
+    address_space_read(&address_space_memory, 0x8060c01c, MEMTXATTRS_UNSPECIFIED, &algo, 4);
+    address_space_read(&address_space_memory, 0x8060c058, MEMTXATTRS_UNSPECIFIED, &meta, 8);
+    fprintf(stderr, "[DBG] PC=0x%lx X0=0x%lx(%ld) ESR=0x%lx EL=%d ELR=0x%lx FAR=0x%lx hash=0x%lx L1=0x%lx L3=0x%lx p0=0x%lx avb=0x%lx auth=0x%lx aux=0x%lx algo=0x%lx meta=0x%lx ver=0x%lx\n",
             (unsigned long)cpu->env.pc,
             (unsigned long)cpu->env.xregs[0], (long)(int64_t)cpu->env.xregs[0],
             (unsigned long)cpu->env.cp15.esr_el[1],
             (int)(cpu->env.pstate & 0xc) >> 2,
             (unsigned long)cpu->env.elr_el[1],
             (unsigned long)cpu->env.cp15.far_el[1],
-            (unsigned long)hash, (unsigned long)pte, (unsigned long)pte2, (unsigned long)p0, (unsigned long)avb, (unsigned long)cmp, (unsigned long)result);
+            (unsigned long)hash, (unsigned long)pte, (unsigned long)pte2, (unsigned long)p0, (unsigned long)avb, (unsigned long)auth, (unsigned long)aux, (unsigned long)algo, (unsigned long)meta, (unsigned long)result);
 }
 
 static void ums9230_set_el(void *opaque)
