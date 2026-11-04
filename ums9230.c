@@ -310,10 +310,21 @@ static void inject_vboot(void *opaque)
     /* initialize the heap free-list/used-list heads at 0xffffffffe0375a30.
      * malloc reads [heap+0x58]/[heap+0x60] as the FREE-list head (x24 = heap+0x58),
      * and the drain/free use [heap+0x68]/[heap+0x70] as the USED-list head. */
-    W64(0x80375a30ULL + 0x58, 0xffffffffe1000000ULL); /* free-list.next = free node */
-    W64(0x80375a30ULL + 0x60, 0xffffffffe1000000ULL); /* free-list.prev = free node */
-    W64(0x80375a30ULL + 0x68, 0xffffffffe0375a98ULL); /* used-list.next = &used-head (empty) */
-    W64(0x80375a30ULL + 0x70, 0xffffffffe0375a98ULL); /* used-list.prev = &used-head (empty) */
+    {
+        uint64_t h0 = 0xffffffffe1000000ULL, h1 = 0xffffffffe1000000ULL,
+                 h2 = 0xffffffffe0375a98ULL, h3 = 0xffffffffe0375a98ULL;
+        address_space_write(&address_space_memory, 0x80375a88ULL, MEMTXATTRS_UNSPECIFIED, &h0, 8);
+        address_space_write(&address_space_memory, 0x80375a90ULL, MEMTXATTRS_UNSPECIFIED, &h1, 8);
+        address_space_write(&address_space_memory, 0x80375a98ULL, MEMTXATTRS_UNSPECIFIED, &h2, 8);
+        address_space_write(&address_space_memory, 0x80375aa0ULL, MEMTXATTRS_UNSPECIFIED, &h3, 8);
+        {
+            uint64_t rb0 = 0, rb1 = 0;
+            address_space_read(&address_space_memory, 0x80375a88ULL, MEMTXATTRS_UNSPECIFIED, &rb0, 8);
+            address_space_read(&address_space_memory, 0x80375a90ULL, MEMTXATTRS_UNSPECIFIED, &rb1, 8);
+            fprintf(stderr, "[DBG] heap-write-readback: 0x80375a88=0x%lx 0x80375a90=0x%lx\n",
+                    (unsigned long)rb0, (unsigned long)rb1);
+        }
+    }
 
     /* place a single large free chunk so malloc can satisfy the 0x100/0xd0/0x190 allocs.
      * free node data at PA 0x81000000 -> VA 0xffffffffe1000000 (write_heap maps VA[16MB..64MB)->PA 0x81000000). */
@@ -352,7 +363,7 @@ static void inject_vboot(void *opaque)
     /* force version_major != 1 so avb_vbmeta_image_verify returns 3 (ERROR_VERIFICATION -> -11).
      * raw vbmeta has version_major=0x01000000 (BE); bswap32 -> 1 -> version passes.
      * set it to 0x02000000 so bswap32 -> 2 -> version != 1 -> 3. */
-    /* W64(0x80700004ULL, 0x02000000ULL);  // DISABLED: let version==1 pass and reach the hash+RSA path */
+    /* W64(0x80700004ULL, 0x02000000ULL);  // ENABLE for -11 (returns 3). Comment out to run the full hash+RSA path (returns 0). */
 
     /* drive avb_vbmeta_image_verify (0x6ed70) directly with the loaded vbmeta.
      * x0 = vbmeta data ; w1 = size ; x2 = hash out ; x3 = hash_size out ; x4 = 0 */
@@ -397,10 +408,10 @@ static void dump_regs(void *opaque)
     address_space_read(&address_space_memory, 0x80700014, MEMTXATTRS_UNSPECIFIED, &rawaux, 8);
     address_space_read(&address_space_memory, 0x8060c01c, MEMTXATTRS_UNSPECIFIED, &algo, 4);
     address_space_read(&address_space_memory, 0x8060c058, MEMTXATTRS_UNSPECIFIED, &meta, 8);
-    address_space_read(&address_space_memory, 0x80356808, MEMTXATTRS_UNSPECIFIED, &heap, 8);
-    address_space_read(&address_space_memory, 0x81000000, MEMTXATTRS_UNSPECIFIED, &raw, 8);
-    address_space_read(&address_space_memory, 0x81000008, MEMTXATTRS_UNSPECIFIED, &rawaux, 8);
-    fprintf(stderr, "[DBG] PC=0x%lx X0=0x%lx(%ld) ESR=0x%lx EL=%d ELR=0x%lx FAR=0x%lx hash=0x%lx L1=0x%lx L3=0x%lx p0=0x%lx avb=0x%lx auth=0x%lx aux=0x%lx algo=0x%lx meta=0x%lx heap=0x%lx fn_prev=0x%lx fn_next=0x%lx ver=0x%lx\n",
+    address_space_read(&address_space_memory, 0x80375a88, MEMTXATTRS_UNSPECIFIED, &heap, 8);
+    address_space_read(&address_space_memory, 0x80375a90, MEMTXATTRS_UNSPECIFIED, &raw, 8);
+    address_space_read(&address_space_memory, 0x81000010, MEMTXATTRS_UNSPECIFIED, &rawaux, 8);
+    fprintf(stderr, "[DBG] PC=0x%lx X0=0x%lx(%ld) ESR=0x%lx EL=%d ELR=0x%lx FAR=0x%lx hash=0x%lx L1=0x%lx L3=0x%lx p0=0x%lx avb=0x%lx auth=0x%lx aux=0x%lx algo=0x%lx meta=0x%lx fl_next=0x%lx fl_prev=0x%lx fn_size=0x%lx ver=0x%lx\n",
             (unsigned long)cpu->env.pc,
             (unsigned long)cpu->env.xregs[0], (long)(int64_t)cpu->env.xregs[0],
             (unsigned long)cpu->env.cp15.esr_el[1],
@@ -491,7 +502,7 @@ static void ums9230_init(MachineState *machine)
         }
         {
             QEMUTimer *t = timer_new_ns(QEMU_CLOCK_VIRTUAL, inject_vboot, cpuobj);
-            timer_mod(t, qemu_clock_get_ns(QEMU_CLOCK_VIRTUAL) + 1000000ULL); /* after boot, run the verify */
+            timer_mod(t, qemu_clock_get_ns(QEMU_CLOCK_VIRTUAL) + 2000000ULL); /* after boot main-init (1.5ms), before 3ms spinlock */
         }
         {
             QEMUTimer *t = timer_new_ns(QEMU_CLOCK_VIRTUAL, dump_regs, cpuobj);
