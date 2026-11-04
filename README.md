@@ -9,9 +9,8 @@ and run its vbmeta verification, demonstrating the **`-11` (rejected) vs `0`
 
 - Boots the trustos payload (a raw slice of `trustos_a.img`) from RAM at
   `0x80000000`.
-- Provides a UART (PL011 @ `0x200b0000`), GICv3, a timer, and a **log-only
-  crypto-engine MMIO** device (`0x54000000`) — the CE is a stub; it does not
-  perform real SHA/RSA math.
+- Provides a UART (PL011 @ `0x200b0000`), GICv3, a timer, and a **crypto-engine
+  MMIO** device (`0x54000000`) that performs real SHA-256 + RSA-4096.
 - Drives `avb_vbmeta_image_verify` (`0x6ed70`) against `vbmeta-stock.img` and
   returns the AVB result:
   - **`3`** (`AVB_VBMETA_IMAGE_RESULT_UNSUPPORTED_VERSION`) → maps to trusty
@@ -65,8 +64,8 @@ as `hash=0x3` (`-11`) for the stock image.
 
 ## Limitations (honest)
 
-- The crypto engine is a **stub**: it logs MMIO traffic but does not compute
-  real SHA-256/RSA-4096.
+- The crypto engine does real SHA-256 + RSA-4096 (math verified against test
+  vectors); its register map is a documented approximation of the Unisoc CE.
 - `-11` is demonstrated through the **version check** path, not the full
   RSA/SHA compare (async worker → `avb_slot_verify`).
 - Only the trustos firmware boots; Android/Linux userspace is not emulated.
