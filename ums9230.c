@@ -295,6 +295,8 @@ static void inject_vboot(void *opaque)
     /* the 6MB-8MB block (crypto ctx + vbmeta) is mapped AP=2 (EL1 RO, EL0 none);
      * make it AP=1 (RW for EL0+EL1) so the verify can read/write it. */
     W64(0x80356018ULL, 0x60000080600649ULL);  /* L1[3] = 6MB block, AP=1 RW (bits[7:6]=01) */
+    W64(0x80356808ULL, 0x60000080200649ULL);  /* L2[0x101] = heap .bss block (PA 0x80200000), AP=1 RW */
+    W64(0x80356040ULL, 0x60000081000649ULL);  /* L2[8] = free-node block (VA 0xffffffffe1000000 -> PA 0x81000000), AP=1 RW */
 
     /* map the rodata page holding the "AVB0" magic (VA 0xffffffffe00a5d78 -> PA 0x800a5d78)
      * via the level-3 table at 0x80381000, entry (0xa5d78>>12)=0xa5. */
@@ -314,11 +316,11 @@ static void inject_vboot(void *opaque)
     W64(0x80375a30ULL + 0x70, 0xffffffffe0375a98ULL);
 
     /* place a single large free chunk so malloc can satisfy the 0x100/0xd0/0x190 allocs.
-     * free node at VA 0xffffffffe0800000 (PA 0x81000000): prev/next = sentinel, size = 0x2000 */
+     * free node data at PA 0x81000000 -> VA 0xffffffffe1000000 (write_heap maps VA[16MB..64MB)->PA 0x81000000). */
     W64(0x81000000ULL,      0xffffffffe0375a98ULL); /* free.prev = sentinel */
     W64(0x81000000ULL + 8,  0xffffffffe0375a98ULL); /* free.next = sentinel */
     W64(0x81000000ULL + 0x10, 0x2000ULL);            /* free.size */
-    W64(0x80375a30ULL + 0x70, 0xffffffffe0800000ULL); /* free-list head -> free node */
+    W64(0x80375a30ULL + 0x70, 0xffffffffe1000000ULL); /* free-list head -> free node */
 
     /* populate the avb crypto ops table (what 0x6f890 would build) so the hash/RSA
      * engine can run. ops struct at VA 0xffffffffe060c000 (PA 0x8060c000). */
@@ -380,7 +382,7 @@ static void inject_vboot(void *opaque)
 static void dump_regs(void *opaque)
 {
     ARMCPU *cpu = ARM_CPU(opaque);
-    uint64_t pte = 0, pte2 = 0, result = 0, hash = 0, hashsz = 0, p0 = 0, avb = 0, cmp = 0, auth = 0, aux = 0, raw = 0, rawaux = 0, algo = 0, meta = 0;
+    uint64_t pte = 0, pte2 = 0, result = 0, hash = 0, hashsz = 0, p0 = 0, avb = 0, cmp = 0, auth = 0, aux = 0, raw = 0, rawaux = 0, algo = 0, meta = 0, heap = 0;
     address_space_read(&address_space_memory, 0x80356018, MEMTXATTRS_UNSPECIFIED, &pte, 8);
     address_space_read(&address_space_memory, 0x80381528, MEMTXATTRS_UNSPECIFIED, &pte2, 8);
     address_space_read(&address_space_memory, 0x80700000, MEMTXATTRS_UNSPECIFIED, &result, 8);
@@ -396,14 +398,17 @@ static void dump_regs(void *opaque)
     address_space_read(&address_space_memory, 0x80700014, MEMTXATTRS_UNSPECIFIED, &rawaux, 8);
     address_space_read(&address_space_memory, 0x8060c01c, MEMTXATTRS_UNSPECIFIED, &algo, 4);
     address_space_read(&address_space_memory, 0x8060c058, MEMTXATTRS_UNSPECIFIED, &meta, 8);
-    fprintf(stderr, "[DBG] PC=0x%lx X0=0x%lx(%ld) ESR=0x%lx EL=%d ELR=0x%lx FAR=0x%lx hash=0x%lx L1=0x%lx L3=0x%lx p0=0x%lx avb=0x%lx auth=0x%lx aux=0x%lx algo=0x%lx meta=0x%lx ver=0x%lx\n",
+    address_space_read(&address_space_memory, 0x80356808, MEMTXATTRS_UNSPECIFIED, &heap, 8);
+    address_space_read(&address_space_memory, 0x81000000, MEMTXATTRS_UNSPECIFIED, &raw, 8);
+    address_space_read(&address_space_memory, 0x81000008, MEMTXATTRS_UNSPECIFIED, &rawaux, 8);
+    fprintf(stderr, "[DBG] PC=0x%lx X0=0x%lx(%ld) ESR=0x%lx EL=%d ELR=0x%lx FAR=0x%lx hash=0x%lx L1=0x%lx L3=0x%lx p0=0x%lx avb=0x%lx auth=0x%lx aux=0x%lx algo=0x%lx meta=0x%lx heap=0x%lx fn_prev=0x%lx fn_next=0x%lx ver=0x%lx\n",
             (unsigned long)cpu->env.pc,
             (unsigned long)cpu->env.xregs[0], (long)(int64_t)cpu->env.xregs[0],
             (unsigned long)cpu->env.cp15.esr_el[1],
             (int)(cpu->env.pstate & 0xc) >> 2,
             (unsigned long)cpu->env.elr_el[1],
             (unsigned long)cpu->env.cp15.far_el[1],
-            (unsigned long)hash, (unsigned long)pte, (unsigned long)pte2, (unsigned long)p0, (unsigned long)avb, (unsigned long)auth, (unsigned long)aux, (unsigned long)algo, (unsigned long)meta, (unsigned long)result);
+            (unsigned long)hash, (unsigned long)pte, (unsigned long)pte2, (unsigned long)p0, (unsigned long)avb, (unsigned long)auth, (unsigned long)aux, (unsigned long)algo, (unsigned long)meta, (unsigned long)heap, (unsigned long)raw, (unsigned long)rawaux, (unsigned long)result);
 }
 
 static void ums9230_set_el(void *opaque)
