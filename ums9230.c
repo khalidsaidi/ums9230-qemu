@@ -307,20 +307,19 @@ static void inject_vboot(void *opaque)
         fprintf(stderr, "[DBG] L3[0xa5] @0x80381528 = 0x%lx\n", (unsigned long)chk);
     }
 
-    /* initialize the heap free-list sentinels (empty) at 0xffffffffe0375a30 so
-     * the allocator inside avb_vbmeta_image_verify can malloc without faulting.
-     * [0x60]=[0x58] (used-list head) and [0x70]=[0x68] (free-list head). */
-    W64(0x80375a30ULL + 0x58, 0xffffffffe0375a88ULL);
-    W64(0x80375a30ULL + 0x60, 0xffffffffe0375a88ULL);
-    W64(0x80375a30ULL + 0x68, 0xffffffffe0375a98ULL);
-    W64(0x80375a30ULL + 0x70, 0xffffffffe0375a98ULL);
+    /* initialize the heap free-list/used-list heads at 0xffffffffe0375a30.
+     * malloc reads [heap+0x58]/[heap+0x60] as the FREE-list head (x24 = heap+0x58),
+     * and the drain/free use [heap+0x68]/[heap+0x70] as the USED-list head. */
+    W64(0x80375a30ULL + 0x58, 0xffffffffe1000000ULL); /* free-list.next = free node */
+    W64(0x80375a30ULL + 0x60, 0xffffffffe1000000ULL); /* free-list.prev = free node */
+    W64(0x80375a30ULL + 0x68, 0xffffffffe0375a98ULL); /* used-list.next = &used-head (empty) */
+    W64(0x80375a30ULL + 0x70, 0xffffffffe0375a98ULL); /* used-list.prev = &used-head (empty) */
 
     /* place a single large free chunk so malloc can satisfy the 0x100/0xd0/0x190 allocs.
      * free node data at PA 0x81000000 -> VA 0xffffffffe1000000 (write_heap maps VA[16MB..64MB)->PA 0x81000000). */
-    W64(0x81000000ULL,      0xffffffffe0375a98ULL); /* free.prev = sentinel */
-    W64(0x81000000ULL + 8,  0xffffffffe0375a98ULL); /* free.next = sentinel */
+    W64(0x81000000ULL,      0xffffffffe0375a88ULL); /* free.prev = &free-head (heap+0x58) */
+    W64(0x81000000ULL + 8,  0xffffffffe0375a88ULL); /* free.next = &free-head (heap+0x58) */
     W64(0x81000000ULL + 0x10, 0x2000ULL);            /* free.size */
-    W64(0x80375a30ULL + 0x70, 0xffffffffe1000000ULL); /* free-list head -> free node */
 
     /* populate the avb crypto ops table (what 0x6f890 would build) so the hash/RSA
      * engine can run. ops struct at VA 0xffffffffe060c000 (PA 0x8060c000). */
