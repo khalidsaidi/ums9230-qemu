@@ -24,25 +24,197 @@
 #define UMS9230_CE_SIZE   0x1000000ull
 #define TRUSTOS_LOAD_ADDR 0x80000000ull
 
-/* ---- crypto engine: log-only MMIO device ---- */
+/* ---- crypto engine: real SHA-256 + RSA-4096 MMIO device ----
+ * Register map (documented interface; the exact Unisoc CE layout is TBD):
+ *   0x000  SHA_CTRL    W: bit0=1 reset hash ; bit1=1 finalize -> digest valid
+ *   0x100  SHA_DATA    W: streaming data in (each write appends the bytes)
+ *   0x300  SHA_DIGEST  R: 32-byte digest
+ *   0x400  RSA_CTRL    W: bit0=1 run modpow (sig^65537 mod N)
+ *   0x500  RSA_N       W: 512-byte modulus
+ *   0x700  RSA_SIG     W: 512-byte signature (base)
+ *   0x900  RSA_RESULT  R: 512-byte result
+ */
+#include <string.h>
+
 #define TYPE_UMS9230_CE "ums9230-ce"
 OBJECT_DECLARE_SIMPLE_TYPE(Ums9230CEState, UMS9230_CE)
 
+/* ---------------- SHA-256 ---------------- */
+typedef struct { uint32_t h[8]; uint64_t total; uint8_t block[64]; unsigned blen; } Sha256Ctx;
+static const uint32_t K[64] = {
+0x428a2f98,0x71374491,0xb5c0fbcf,0xe9b5dba5,0x3956c25b,0x59f111f1,0x923f82a4,0xab1c5ed5,
+0xd807aa98,0x12835b01,0x243185be,0x550c7dc3,0x72be5d74,0x80deb1fe,0x9bdc06a7,0xc19bf174,
+0xe49b69c1,0xefbe4786,0x0fc19dc6,0x240ca1cc,0x2de92c6f,0x4a7484aa,0x5cb0a9dc,0x76f988da,
+0x983e5152,0xa831c66d,0xb00327c8,0xbf597fc7,0xc6e00bf3,0xd5a79147,0x06ca6351,0x14292967,
+0x27b70a85,0x2e1b2138,0x4d2c6dfc,0x53380d13,0x650a7354,0x766a0abb,0x81c2c92e,0x92722c85,
+0xa2bfe8a1,0xa81a664b,0xc24b8b70,0xc76c51a3,0xd192e819,0xd6990624,0xf40e3585,0x106aa070,
+0x19a4c116,0x1e376c08,0x2748774c,0x34b0bcb5,0x391c0cb3,0x4ed8aa4a,0x5b9cca4f,0x682e6ff3,
+0x748f82ee,0x78a5636f,0x84c87814,0x8cc70208,0x90befffa,0xa4506ceb,0xbef9a3f7,0xc67178f2
+};
+#define ROR32(x,n) (((x)>>(n))|((x)<<(32-(n))))
+static void sha256_init(Sha256Ctx *c) {
+    c->h[0]=0x6a09e667; c->h[1]=0xbb67ae85; c->h[2]=0x3c6ef372; c->h[3]=0xa54ff53a;
+    c->h[4]=0x510e527f; c->h[5]=0x9b05688c; c->h[6]=0x1f83d9ab; c->h[7]=0x5be0cd19;
+    c->total=0; c->blen=0;
+}
+static void sha256_block(Sha256Ctx *c, const uint8_t *p) {
+    uint32_t w[64];
+    for (int i=0;i<16;i++) w[i] = ((uint32_t)p[4*i]<<24)|((uint32_t)p[4*i+1]<<16)|((uint32_t)p[4*i+2]<<8)|p[4*i+3];
+    for (int i=16;i<64;i++) {
+        uint32_t s0 = ROR32(w[i-15],7)^ROR32(w[i-15],18)^(w[i-15]>>3);
+        uint32_t s1 = ROR32(w[i-2],17)^ROR32(w[i-2],19)^(w[i-2]>>10);
+        w[i] = w[i-16]+s0+w[i-7]+s1;
+    }
+    uint32_t a=c->h[0],b=c->h[1],cc=c->h[2],d=c->h[3],e=c->h[4],f=c->h[5],g=c->h[6],h=c->h[7];
+    for (int i=0;i<64;i++) {
+        uint32_t S1=ROR32(e,6)^ROR32(e,11)^ROR32(e,25);
+        uint32_t ch=(e&f)^((~e)&g);
+        uint32_t t1=h+S1+ch+K[i]+w[i];
+        uint32_t S0=ROR32(a,2)^ROR32(a,13)^ROR32(a,22);
+        uint32_t maj=(a&b)^(a&cc)^(b&cc);
+        uint32_t t2=S0+maj;
+        h=g; g=f; f=e; e=d+t1; d=cc; cc=b; b=a; a=t1+t2;
+    }
+    c->h[0]+=a; c->h[1]+=b; c->h[2]+=cc; c->h[3]+=d; c->h[4]+=e; c->h[5]+=f; c->h[6]+=g; c->h[7]+=h;
+}
+static void sha256_update(Sha256Ctx *c, const uint8_t *p, size_t len) {
+    c->total += len;
+    while (len > 0) {
+        size_t take = 64 - c->blen; if (take > len) take = len;
+        memcpy(c->block + c->blen, p, take);
+        c->blen += take; p += take; len -= take;
+        if (c->blen == 64) { sha256_block(c, c->block); c->blen = 0; }
+    }
+}
+static void sha256_final(Sha256Ctx *c, uint8_t out[32]) {
+    uint64_t bits = c->total * 8;
+    uint8_t pad = 0x80, zero = 0;
+    sha256_update(c, &pad, 1);
+    while (c->blen != 56) sha256_update(c, &zero, 1);
+    uint8_t lenb[8];
+    for (int i=0;i<8;i++) lenb[i] = (uint8_t)(bits >> (56 - 8*i));
+    sha256_update(c, lenb, 8);
+    for (int i=0;i<8;i++) {
+        out[4*i]   = (uint8_t)(c->h[i]>>24);
+        out[4*i+1] = (uint8_t)(c->h[i]>>16);
+        out[4*i+2] = (uint8_t)(c->h[i]>>8);
+        out[4*i+3] = (uint8_t)(c->h[i]);
+    }
+}
+
+/* ---------------- RSA-4096 (modpow e=65537) ---------------- */
+#define BN_LIMBS 64
+typedef uint64_t limb;
+typedef struct { limb v[BN_LIMBS]; } bn;
+static void bn_from_le(bn *x, const uint8_t *p) {
+    for (int i=0;i<BN_LIMBS;i++) { x->v[i]=0; for (int j=0;j<8;j++) x->v[i] |= ((limb)p[i*8+j]) << (8*j); }
+}
+static void bn_to_le(uint8_t *p, const bn *x) {
+    for (int i=0;i<BN_LIMBS;i++) for (int j=0;j<8;j++) p[i*8+j] = (uint8_t)(x->v[i] >> (8*j));
+}
+static int bn_cmp(const bn *a, const bn *b) {
+    for (int i=BN_LIMBS-1;i>=0;i--) if (a->v[i]!=b->v[i]) return a->v[i]<b->v[i] ? -1 : 1;
+    return 0;
+}
+static void bn_mul(limb prod[2*BN_LIMBS], const bn *a, const bn *b) {
+    memset(prod, 0, 2*BN_LIMBS*sizeof(limb));
+    for (int i=0;i<BN_LIMBS;i++) {
+        limb carry = 0;
+        for (int j=0;j<BN_LIMBS;j++) {
+            __uint128_t t = (__uint128_t)a->v[i] * b->v[j] + prod[i+j] + carry;
+            prod[i+j] = (limb)t;
+            carry = (limb)(t >> 64);
+        }
+        prod[i+BN_LIMBS] += carry;
+    }
+}
+static void bn_mod(bn *r, const limb prod[2*BN_LIMBS], const bn *n) {
+    limb num[2*BN_LIMBS];
+    memcpy(num, prod, 2*BN_LIMBS*sizeof(limb));
+    int top = 2*BN_LIMBS-1;
+    while (top >= 0 && num[top] == 0) top--;
+    limb rr[BN_LIMBS+1];
+    memset(rr, 0, sizeof(rr));
+    for (int bit = top*64 + 63; bit >= 0; bit--) {
+        for (int i=BN_LIMBS;i>0;i--) rr[i] = (rr[i]<<1) | (rr[i-1]>>63);
+        rr[0] <<= 1;
+        int w = bit/64, b = bit%64;
+        rr[0] |= (num[w] >> b) & 1;
+        if (rr[BN_LIMBS] != 0 || bn_cmp((const bn *)rr, n) >= 0) {
+            limb borrow = 0;
+            for (int i=0;i<BN_LIMBS;i++) {
+                limb bv = n->v[i];
+                limb sub = bv + borrow;
+                limb nb = (rr[i] < sub) || (borrow && bv == ~(limb)0);
+                rr[i] = rr[i] - sub;
+                borrow = nb;
+            }
+            if (borrow) rr[BN_LIMBS]--;
+        }
+    }
+    memcpy(r->v, rr, BN_LIMBS*sizeof(limb));
+}
+static void bn_modmul(bn *r, const bn *a, const bn *b, const bn *n) {
+    limb prod[2*BN_LIMBS];
+    bn_mul(prod, a, b);
+    bn_mod(r, prod, n);
+}
+static void bn_modpow_65537(bn *r, const bn *base, const bn *n) {
+    bn acc; memset(acc.v, 0, sizeof(acc.v)); acc.v[0] = 1;
+    for (int bit = 16; bit >= 0; bit--) {
+        bn_modmul(&acc, &acc, &acc, n);
+        if ((0x10001 >> bit) & 1) bn_modmul(&acc, &acc, base, n);
+    }
+    *r = acc;
+}
+static void rsa_verify(uint8_t out[512], const uint8_t sig[512], const uint8_t n[512]) {
+    bn base, mod, res;
+    bn_from_le(&base, sig);
+    bn_from_le(&mod, n);
+    bn_modpow_65537(&res, &base, &mod);
+    bn_to_le(out, &res);
+}
+
+/* ---------------- device ---------------- */
 struct Ums9230CEState {
     SysBusDevice parent_obj;
     MemoryRegion iomem;
+    Sha256Ctx sha;
+    uint8_t sha_digest[32];
+    uint8_t rsa_n[512];
+    uint8_t rsa_sig[512];
+    uint8_t rsa_result[512];
 };
 
 static uint64_t ce_read(void *opaque, hwaddr offset, unsigned size)
 {
-    fprintf(stderr, "[CE READ  off=0x%lx size=%u]\n", (unsigned long)offset, size);
-    return 0;
+    Ums9230CEState *s = UMS9230_CE(opaque);
+    uint64_t v = 0;
+    if (offset >= 0x300 && offset < 0x300 + 32) {
+        memcpy(&v, s->sha_digest + (offset - 0x300), size < 8 ? size : 8);
+    } else if (offset >= 0x900 && offset < 0x900 + 512) {
+        memcpy(&v, s->rsa_result + (offset - 0x900), size < 8 ? size : 8);
+    }
+    return v;
 }
 
 static void ce_write(void *opaque, hwaddr offset, uint64_t value, unsigned size)
 {
-    fprintf(stderr, "[CE WRITE off=0x%lx size=%u val=0x%lx]\n",
-            (unsigned long)offset, size, (unsigned long)value);
+    Ums9230CEState *s = UMS9230_CE(opaque);
+    uint8_t bytes[8];
+    for (unsigned i = 0; i < size && i < 8; i++) bytes[i] = (uint8_t)(value >> (8*i));
+    if (offset >= 0x100 && offset < 0x300) {
+        sha256_update(&s->sha, bytes, size);
+    } else if (offset >= 0x500 && offset < 0x700) {
+        for (unsigned i = 0; i < size && i < 8; i++) s->rsa_n[offset - 0x500 + i] = bytes[i];
+    } else if (offset >= 0x700 && offset < 0x900) {
+        for (unsigned i = 0; i < size && i < 8; i++) s->rsa_sig[offset - 0x700 + i] = bytes[i];
+    } else if (offset == 0x000) {
+        if (value & 1) sha256_init(&s->sha);
+        if (value & 2) sha256_final(&s->sha, s->sha_digest);
+    } else if (offset == 0x400) {
+        if (value & 1) rsa_verify(s->rsa_result, s->rsa_sig, s->rsa_n);
+    }
 }
 
 static const MemoryRegionOps ce_ops = {
@@ -54,6 +226,7 @@ static const MemoryRegionOps ce_ops = {
 static void ce_realize(DeviceState *dev, Error **errp)
 {
     Ums9230CEState *s = UMS9230_CE(dev);
+    sha256_init(&s->sha);
     memory_region_init_io(&s->iomem, OBJECT(dev), &ce_ops, s, "ums9230-ce", UMS9230_CE_SIZE);
     sysbus_init_mmio(SYS_BUS_DEVICE(dev), &s->iomem);
     fprintf(stderr, "[DBG] CE realize: iomem size=0x%lx\n", (unsigned long)memory_region_size(&s->iomem));
