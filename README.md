@@ -40,7 +40,7 @@ Requires Linux (tested in WSL2), git, a C toolchain, ninja, meson, python3.
 ./scripts/build.sh
 ```
 
-This clones QEMU into `./qemu`, copies `ums9230.c` into `hw/arm/`, registers it
+This clones QEMU into `./qemu`, copies `ums9230.c` into `hw/arm/`, patches the ARM CPU for Secure-EL1 reset, then registers it
 in `hw/arm/meson.build` + `hw/arm/Kconfig`, configures an aarch64-only build,
 and compiles `qemu/build/qemu-system-aarch64`.
 
