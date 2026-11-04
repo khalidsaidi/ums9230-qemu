@@ -25,7 +25,7 @@ if "CONFIG_UMS9230" not in s:
 kconfig_path = os.path.join(root, 'hw/arm/Kconfig')
 s = open(kconfig_path).read()
 if "config UMS9230" not in s:
-    s += "\nconfig UMS9230\n    bool\n    select PL011\n    select ARM_GICV3\n"
+    s += "\nconfig UMS9230\n    bool\n    default y\n    select PL011\n    select ARM_GICV3\n"
     open(kconfig_path, 'w').write(s)
 print("ums9230 registered in meson.build + Kconfig")
 EOF
