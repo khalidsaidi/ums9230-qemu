@@ -425,6 +425,7 @@ static void inject_vboot(void *opaque)
      * entry = {prev,next, size[0x34], offset[0x38], base[0x40] } at VA 0xffffffffe060f000. */
     W64(0x80380368ULL, 0xffffffffe0700000ULL);  /* vmm[+0x38] = base (match key vs entry.base) */
     W64(0x80380370ULL, 0x200000ULL);            /* vmm[+0x40] = total region size (must exceed entry size) */
+    W64(0x80354378ULL, 0xffffffffe0380330ULL);  /* kernel aspace pointer (0x3930 vmm_find_region reads it) */
     W64(0x80380378ULL, 0xffffffffe0380378ULL);  /* head.prev = head */
     W64(0x80380380ULL, 0xffffffffe060f000ULL);  /* head.next = entry */
     W64(0x8060f000ULL, 0xffffffffe0380378ULL);  /* entry.prev = head */
