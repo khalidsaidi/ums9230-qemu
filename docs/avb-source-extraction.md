@@ -124,3 +124,87 @@ algorithm_type[0x1c], hash_offset[0x20], hash_size[0x28], signature_offset[0x30]
 signature_size[0x38], public_key_offset[0x40], public_key_size[0x48],
 public_key_metadata_offset[0x50], public_key_metadata_size[0x58],
 descriptors_offset[0x60], descriptors_size[0x68], rollback_index[0x70], flags[0x78].
+
+
+## 9. LK heap + mutex (exact structs, from common/lk source)
+
+`mutex_t` (common/include/kernel/mutex.h), size **0x28**:
+```
++0x00 uint32 magic   = 0x6D757478 ('mutx')
++0x04 (pad 4)
++0x08 thread_t* holder
++0x10 int count
++0x14 (pad 4)
++0x18 wait_queue_t wait  (16 bytes)
+```
+`mutex_init` sets {magic, holder=NULL, count=0, wait}. `mutex_acquire` = ++count, if
+count>1 block, holder=current; `mutex_release` = holder=0, --count, wake if >=1.
+Single-threaded: acquire/release are no-ops except the magic+count fields (assert reads magic).
+
+`cmpctmalloc` (lk/lib/heap/cmpctmalloc/cmpctmalloc_private.h), theheap:
+```
+HEAP_ALIGN = 16;  NUMBER_OF_BUCKETS = 1 + 15 + (22 - (4+4))*8 = 128
+struct heap:
+  +0x00 size_t size
+  +0x08 size_t remaining
+  +0x10 mutex_t lock            (0x28)
+  +0x38 free_t* free_lists[128] (0x400)
+  +0x438 uint32 free_list_bits[4] (0x10)
+free_t = { header_t{ left(8), size(8) }, next(8), prev(8) }  // 0x20
+header_t = { left(8), size(8) }
+```
+`cmpct_init`: mutex_init(lock); free_lists[i]=NULL; free_list_bits[i]=0;
+remaining=0; `heap_grow(HEAP_GROW_SIZE - 2*sizeof(header_t))` -> page_alloc + add_to_heap.
+`cmpct_alloc(size)`: size_to_index_allocating -> find_nonempty_bucket(free_list_bits)
+-> pop free_lists[bucket] -> split -> return (or heap_grow if empty).
+`avb_malloc`==`malloc`==`cmpct_alloc`.
+
+`miniheap` (lk/lib/heap/miniheap/miniheap.c), theheap:
+```
++0x00 void* base
++0x08 size_t len
++0x10 size_t remaining
++0x18 size_t low_watermark
++0x20 mutex_t lock            (0x28)
++0x48 free_heap_chunk* free_list  (singly-linked, address-ordered)
+free_heap_chunk = { next(8), len(8) }
+```
+`miniheap_init(ptr,len)`: set base/len/remaining=0/low_watermark=0; if len>0 insert one
+free chunk. `miniheap_alloc(size,align)` walks free_list first-fit.
+
+## 10. Descriptor chain (avb_descriptor.c + avb_hash_descriptor.h)
+
+Descriptors live in the AUX block at `sizeof(header) + auth_data_block_size + descriptors_offset`.
+Each descriptor: `{ uint64 tag; uint64 num_bytes_following; }` (big-endian, then payload).
+`avb_descriptor_foreach` walks them; hash descriptor tag = `AVB_DESCRIPTOR_TAG_HASH`:
+```
+AvbHashDescriptor:
+  +0x00 tag (=2), +0x08 num_bytes_following
+  +0x10 uint64 image_size
+  +0x18 uint8 hash_algorithm[32]
+  +0x38 uint32 partition_name_len
+  +0x3c uint32 salt_len
+  +0x40 uint32 digest_len
+  +0x44 uint32 flags
+  +0x48 uint8 reserved[60]      (total 0x84 = 132)
+  then: partition_name (len bytes), salt, digest
+```
+`avb_slot_verify` reads the hash descriptor's partition_name and calls
+`load_and_verify_vbmeta` a 2nd time for that partition (the "boot" image hash).
+
+## 11. Full avb_slot_verify flow (avb_slot_verify.c @ 0x940459C4)
+```
+avb_slot_verify(ops, requested_partitions, ab_suffix, flags, hashtree_mode, &out_data):
+  *out_data = 0
+  data = avb_calloc(304); data->vbmeta_images = avb_calloc(1024);
+  data->loaded_partitions = avb_calloc(768);
+  ret = load_and_verify_vbmeta(ops,...,"vbmeta", strlen("vbmeta"), ..., data, &alg_type, descriptors)
+  if (ret != 0 && flags == 0) return ret
+  // read hash descriptor partition_name -> 2nd load_and_verify_vbmeta("boot"/chain)
+  ret |= load_and_verify_vbmeta(ops, ..., desc_partition_name, ..., data, ...)
+  if (ret != 0 && flags == 0) return ret
+  ...
+  if (ret != 0 && (ret - 3) > 2) return ret    // ret in {3,4,5} -> return; else continue
+  ... validate_vbmeta_public_key, rollback indexes, etc ...
+```
+Result enum `AvbSlotVerifyResult`: 0 OK, 3 ERROR_VERIFICATION, 7 ERROR_UNSUPPORTED_VERSION.
