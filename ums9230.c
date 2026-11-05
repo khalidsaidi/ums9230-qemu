@@ -316,32 +316,7 @@ static void inject_vboot(void *opaque)
     /* "avb heap" size global ([0x354610] -> VA 0xffffffffe03739b0) = 0 by default; set to RAM size */
     W64(0x803739b0ULL, 0x100000ULL);           /* "avb heap" size = vbmeta size (SL8541E MEMORY[0xFFFFFFFFE0064408]) */
     W64(0x80356ff8ULL, 0x6000009fe00649ULL);   /* L2[0x1ff] = avb-heap VA (0xfffffffffffff000) -> PA 0x9fe00000, AP=1 RW */
-    /* initialize the cmpctmalloc heap (theheap @ VA 0xffffffffe0375a30 -> PA 0x80375a30):
-     * struct heap = { size(0x0), remaining(0x8), mutex_t lock(0x10,0x28), free_lists[128](0x38), free_list_bits[4](0x438) }.
-     * one free chunk at PA 0x80600000 (left_sentinel + free_t + right_sentinel), in bucket 127. */
-    {
-        uint64_t h = 0x80375a30ULL, fs = 0x1fffe0ULL, area = 0x81000000ULL;
-        uint64_t sent = 0xffffffffe1000000ULL, free_va = 0xffffffffe1000010ULL;
-        W64(h + 0x00, 0x200000ULL);       /* theheap.size */
-        W64(h + 0x08, fs);                /* theheap.remaining */
-        W64(h + 0x10, 0x6D757478ULL);     /* lock.magic 'mutx' */
-        W64(h + 0x18, 0);                 /* lock.holder */
-        W64(h + 0x20, 0);                 /* lock.count */
-        W64(h + 0x28, 0);                 /* lock.wait */
-        for (int i = 0; i < 128; i++) W64(h + 0x38 + i*8, 0);  /* free_lists[] = NULL */
-        /* free_list_bits is uint32_t[4] (4-byte words) at 0x438 */
-        W64(h + 0x438, 0);                /* free_list_bits[0..1] = 0 */
-        W64(h + 0x440, 0x1ULL << 32);     /* free_list_bits[2]=0, [3] bit0 = bucket 127 */
-        W64(area + 0x00, 0);                 /* left_sentinel.left = NULL */
-        W64(area + 0x08, 0x10);              /* left_sentinel.size = 0x10 */
-        W64(area + 0x10 + 0x00, sent | 1);   /* free_t.header.left = sentinel|1 (tagged free) */
-        W64(area + 0x10 + 0x08, fs);         /* free_t.header.size */
-        W64(area + 0x10 + 0x10, 0);          /* free_t.next = NULL */
-        W64(area + 0x10 + 0x18, 0);          /* free_t.prev = NULL */
-        W64(area + 0x10 + fs + 0x00, free_va); /* right_sentinel.left = free */
-        W64(area + 0x10 + fs + 0x08, 0);       /* right_sentinel.size = 0 */
-        W64(h + 0x38 + 127*8, free_va);        /* free_lists[127] = free chunk */
-    }
+    /* (cmpctmalloc init removed — 0x780dc is the SPRD malloc, which uses a free-list/used-list, not cmpctmalloc) */
     W64(0x800b82c0ULL, 0xffffffffe006f354ULL); /* avb_ops[+0x48] read_is_device_unlocked = REAL fn (0x6f354) */
     W64(0x800b8298ULL, 0x0ULL);                /* avb_ops[+0x20] get_preloaded_partition = NULL (libavb skips) */
     W64(0x800b82d0ULL, 0xffffffffe0075a98ULL); /* avb_ops[+0x58] get_size_of_partition -> return-0 stub */
@@ -357,7 +332,30 @@ static void inject_vboot(void *opaque)
         fprintf(stderr, "[DBG] L3[0xa5] @0x80381528 = 0x%lx\n", (unsigned long)chk);
     }
 
-    /* (old heap free-list head init removed — it conflicted with the cmpctmalloc init above) */
+    /* SPRD malloc (0x780dc) free/used lists at 0xffffffffe0375a30:
+     * free-list head = [heap+0x58]/[heap+0x60] (x24 = heap+0x58),
+     * used-list head = [heap+0x68]/[heap+0x70] (empty => self-linked).
+     * one free page chunk at PA 0x81000000 -> VA 0xffffffffe1000000,
+     * node = { prev(0x0), next(0x8), size(0x10) }. */
+    {
+        uint64_t heap = 0x80375a30ULL;
+        uint64_t free_va = 0xffffffffe1000000ULL;
+        uint64_t used_head = 0xffffffffe0375a98ULL;   /* heap+0x68 */
+        uint64_t free_head = 0xffffffffe0375a88ULL;   /* heap+0x58 */
+        W64(heap + 0x00, 0x200000ULL);     /* heap.size */
+        W64(heap + 0x08, 0x200000ULL);     /* heap.remaining */
+        W64(heap + 0x10, 0x6D757478ULL);   /* lock.magic 'mutx' */
+        W64(heap + 0x18, 0);               /* lock.holder */
+        W64(heap + 0x20, 0);               /* lock.count */
+        W64(heap + 0x28, 0);               /* lock.wait */
+        W64(heap + 0x58, free_va);         /* free-list head.prev = free chunk */
+        W64(heap + 0x60, free_va);         /* free-list head.next = free chunk */
+        W64(heap + 0x68, used_head);       /* used-list head.prev = self */
+        W64(heap + 0x70, used_head);       /* used-list head.next = self */
+        W64(0x81000000ULL, free_head);     /* free chunk.prev = free-head */
+        W64(0x81000000ULL + 8, free_head); /* free chunk.next = free-head */
+        W64(0x81000000ULL + 0x10, 0x200000ULL); /* free chunk.size = 2MB */
+    }
 
     /* populate the avb crypto ops table (what 0x6f890 would build) so the hash/RSA
      * engine can run. ops struct at VA 0xffffffffe060c000 (PA 0x8060c000). */
@@ -467,17 +465,17 @@ static void dump_regs(void *opaque)
         address_space_read(&address_space_memory, pa1, MEMTXATTRS_UNSPECIFIED, &v1, 8);
         address_space_read(&address_space_memory, pa2, MEMTXATTRS_UNSPECIFIED, &v2, 8);
     }
-    uint64_t heap_rem = 0, flb[4] = {0,0,0,0}, fsz = 0, fnext = 0, fprev = 0;
+    uint64_t heap_rem = 0, flb[4] = {0,0,0,0}, fsz = 0, fnext = 0, fprev = 0, fl127 = 0, flbit3 = 0;
     address_space_read(&address_space_memory, 0x80375a38ULL, MEMTXATTRS_UNSPECIFIED, &heap_rem, 8);
+    address_space_read(&address_space_memory, 0x80375e60ULL, MEMTXATTRS_UNSPECIFIED, &fl127, 8);  /* free_lists[127] */
     address_space_read(&address_space_memory, 0x80375e68ULL, MEMTXATTRS_UNSPECIFIED, &flb[0], 8);
     address_space_read(&address_space_memory, 0x80375e70ULL, MEMTXATTRS_UNSPECIFIED, &flb[1], 8);
-    address_space_read(&address_space_memory, 0x80375e78ULL, MEMTXATTRS_UNSPECIFIED, &flb[2], 8);
-    address_space_read(&address_space_memory, 0x80375e80ULL, MEMTXATTRS_UNSPECIFIED, &flb[3], 8);
+    address_space_read(&address_space_memory, 0x80375e74ULL, MEMTXATTRS_UNSPECIFIED, &flbit3, 4); /* free_list_bits[3] */
     address_space_read(&address_space_memory, 0x81000018ULL, MEMTXATTRS_UNSPECIFIED, &fsz, 8);
     address_space_read(&address_space_memory, 0x81000020ULL, MEMTXATTRS_UNSPECIFIED, &fnext, 8);
     address_space_read(&address_space_memory, 0x81000028ULL, MEMTXATTRS_UNSPECIFIED, &fprev, 8);
     fprintf(stderr, "[DBG] PC=0x%lx X0=0x%lx X1=0x%lx X19=0x%lx ELR=0x%lx FAR=0x%lx sx30=0x%lx sx29=0x%lx sx2=0x%lx\n"
-            "      heap_rem=0x%lx flb=0x%lx/0x%lx/0x%lx/0x%lx fsz=0x%lx fnext=0x%lx fprev=0x%lx\n",
+            "      heap_rem=0x%lx flb=0x%lx/0x%lx flbit3=0x%lx fl127=0x%lx fsz=0x%lx fnext=0x%lx fprev=0x%lx\n",
             (unsigned long)cpu->env.pc,
             (unsigned long)cpu->env.xregs[0],
             (unsigned long)cpu->env.xregs[1],
@@ -486,7 +484,7 @@ static void dump_regs(void *opaque)
             (unsigned long)cpu->env.cp15.far_el[1],
             (unsigned long)sx30, (unsigned long)sx29, (unsigned long)sx2,
             (unsigned long)heap_rem, (unsigned long)flb[0], (unsigned long)flb[1],
-            (unsigned long)flb[2], (unsigned long)flb[3], (unsigned long)fsz,
+            (unsigned long)flbit3, (unsigned long)fl127, (unsigned long)fsz,
             (unsigned long)fnext, (unsigned long)fprev);
 }
 
