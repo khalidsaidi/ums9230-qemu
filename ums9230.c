@@ -297,6 +297,21 @@ static void inject_vboot(void *opaque)
     W64(0x80356018ULL, 0x60000080600649ULL);  /* L1[3] = 6MB block, AP=1 RW (bits[7:6]=01) */
     W64(0x80356808ULL, 0x60000080200649ULL);  /* L2[0x101] = heap .bss block (PA 0x80200000), AP=1 RW */
     W64(0x80356040ULL, 0x60000081000649ULL);  /* L2[8] = free-node block (VA 0xffffffffe1000000 -> PA 0x81000000), AP=1 RW */
+    W64(0x803567f0ULL, 0x6000009fc00649ULL);  /* L2[0xfe] = hwspinlock (VA 0xffffffffffc00000 -> PA 0x9fc00000), AP=1 RW */
+    W64(0x803814b8ULL, 0x8009764bULL);        /* L3[0x97] = vbmeta buffer page (VA 0xffffffffe0097000 -> PA 0x80097000), AF=1 AP=1 RW */
+    W64(0x803814c0ULL, 0x8009864bULL);        /* L3[0x98] = vbmeta buffer 2nd page (VA 0xffffffffe0098000 -> PA 0x80098000), AF=1 AP=1 RW */
+    W64(0x803812f0ULL, 0x8035e64bULL);        /* L3[0x5e] = stack page (VA 0xffffffffe035e000 -> PA 0x8035e000), AF=1 AP=1 RW */
+    /* mmu_initial_mappings for paddr_to_kvaddr (0x745f0): entry {phys, virt, size, flags, name} (0x28 B) */
+    W64(0x8060d100ULL, 0x80000000ULL);         /* entry0[0] = phys (RAM) */
+    W64(0x8060d108ULL, 0xffffffffe0000000ULL); /* entry0[8] = virt */
+    W64(0x8060d110ULL, 0x20000000ULL);         /* entry0[0x10] = size (512MB) */
+    W64(0x8060d118ULL, 0x0ULL);                /* entry0[0x18] = flags */
+    W64(0x8060d128ULL, 0x60000000ULL);         /* entry1[0] = phys (secram) */
+    W64(0x8060d130ULL, 0xffffffffc0000000ULL); /* entry1[8] = virt */
+    W64(0x8060d138ULL, 0x20000000ULL);         /* entry1[0x10] = size (512MB) */
+    W64(0x8060d140ULL, 0x0ULL);                /* entry1[0x18] = flags */
+    W64(0x8060d158ULL, 0x0ULL);                /* entry2 size = 0 (end) */
+    W64(0x803546a0ULL, 0xffffffffe060d100ULL); /* head -> entry0 (VA) */
 
     /* map the rodata page holding the "AVB0" magic (VA 0xffffffffe00a5d78 -> PA 0x800a5d78)
      * via the level-3 table at 0x80381000, entry (0xa5d78>>12)=0xa5. */
@@ -365,17 +380,14 @@ static void inject_vboot(void *opaque)
      * set it to 0x02000000 so bswap32 -> 2 -> version != 1 -> 3. */
     /* W64(0x80700004ULL, 0x02000000ULL);  // ENABLE for -11 (returns 3). Comment out to run the full hash+RSA path (returns 0). */
 
-    /* drive avb_vbmeta_image_verify (0x6ed70) directly with the loaded vbmeta.
-     * x0 = vbmeta data ; w1 = size ; x2 = hash out ; x3 = hash_size out ; x4 = 0 */
-    cpu->env.pstate = 0x3C5;            /* EL1h + DAIF masked (keep interrupts from clobbering regs) */
-    cpu->env.xregs[0] = 0xffffffffe0700000ULL; /* vbmeta data (VA) */
-    cpu->env.xregs[1] = 0x100000;        /* size (full vbmeta-stock.img; pubkey+aux live past 0x1000) */
-    cpu->env.xregs[2] = VA + 0xb000;    /* hash output ptr */
-    cpu->env.xregs[3] = VA + 0xb008;    /* hash size output ptr */
-    cpu->env.xregs[4] = 0;              /* is_chained_vbmeta */
-    fprintf(stderr, "[DBG] inject: x0=0x%lx x1=0x%lx x2=0x%lx x3=0x%lx\n",
-            (unsigned long)cpu->env.xregs[0], (unsigned long)cpu->env.xregs[1],
-            (unsigned long)cpu->env.xregs[2], (unsigned long)cpu->env.xregs[3]);
+    /* set up the avb_slot_verify (0x713f8) input struct: [x0+8]=offset, [x0+0xc]=size */
+    W64(0x8060d000ULL + 8, 0x1000ULL);      /* offset (non-zero to pass the cbz) */
+    W64(0x8060d000ULL + 0xc, 0x100000ULL);  /* size (full vbmeta) */
+
+    /* drive avb_slot_verify (0x713f8) with the input struct */
+    cpu->env.pstate = 0x3C5;            /* EL1h + DAIF masked */
+    cpu->env.xregs[0] = 0xffffffffe060d000ULL; /* input struct (VA) */
+    fprintf(stderr, "[DBG] inject: x0=0x%lx\n", (unsigned long)cpu->env.xregs[0]);
     cpu->env.xregs[30] = 0xffffffffe0001888ULL; /* x30 = return addr (idle loop) */
     cpu->env.cp15.vbar_el[1] = 0xffffffffe0001000ULL; /* vector table */
     cpu->env.cp15.tcr_el[1] = 0x2b52335a4ULL;  /* T1SZ=35 TG1=4KB */
@@ -383,42 +395,45 @@ static void inject_vboot(void *opaque)
     cpu->env.sp_el[1] = 0xffffffffe035f000ULL; /* EL1h stack */
     cpu->env.xregs[31] = 0xffffffffe035f000ULL; /* current SP (x31) */
     cpu->env.cp15.esr_el[1] = 0x15ULL << 26;      /* ESR: SMC exception class */
-    cpu_set_pc(CPU(cpu), 0xffffffffe006ed70ULL); /* avb_vbmeta_image_verify */
+    cpu_set_pc(CPU(cpu), 0xffffffffe00713f8ULL); /* avb_slot_verify */
     cpu_resume(CPU(cpu));                         /* wake the vCPU if it was halted in WFI */
-    fprintf(stderr, "[DBG] injected avb_vbmeta_image_verify (0x6ed70)\n");
+    fprintf(stderr, "[DBG] injected avb_slot_verify (0x713f8)\n");
     #undef W64
 }
 
 static void dump_regs(void *opaque)
 {
     ARMCPU *cpu = ARM_CPU(opaque);
-    uint64_t pte = 0, pte2 = 0, result = 0, hash = 0, hashsz = 0, p0 = 0, avb = 0, cmp = 0, auth = 0, aux = 0, raw = 0, rawaux = 0, algo = 0, meta = 0, heap = 0;
-    address_space_read(&address_space_memory, 0x80356018, MEMTXATTRS_UNSPECIFIED, &pte, 8);
-    address_space_read(&address_space_memory, 0x80381528, MEMTXATTRS_UNSPECIFIED, &pte2, 8);
-    address_space_read(&address_space_memory, 0x80700000, MEMTXATTRS_UNSPECIFIED, &result, 8);
-    address_space_read(&address_space_memory, 0x8060b000, MEMTXATTRS_UNSPECIFIED, &hash, 8);
-    address_space_read(&address_space_memory, 0x8060b008, MEMTXATTRS_UNSPECIFIED, &hashsz, 8);
-    address_space_read(&address_space_memory, 0x8060b010, MEMTXATTRS_UNSPECIFIED, &cmp, 4);
-    address_space_read(&address_space_memory, 0x8060b018, MEMTXATTRS_UNSPECIFIED, &p0, 8);
-    address_space_read(&address_space_memory, 0x800a5d78, MEMTXATTRS_UNSPECIFIED, &avb, 8);
-    address_space_read(&address_space_memory, 0x8060c004, MEMTXATTRS_UNSPECIFIED, &result, 4);
-    address_space_read(&address_space_memory, 0x8060c00c, MEMTXATTRS_UNSPECIFIED, &auth, 8);
-    address_space_read(&address_space_memory, 0x8060c014, MEMTXATTRS_UNSPECIFIED, &aux, 8);
-    address_space_read(&address_space_memory, 0x80700000, MEMTXATTRS_UNSPECIFIED, &raw, 8);
-    address_space_read(&address_space_memory, 0x80700014, MEMTXATTRS_UNSPECIFIED, &rawaux, 8);
-    address_space_read(&address_space_memory, 0x8060c01c, MEMTXATTRS_UNSPECIFIED, &algo, 4);
-    address_space_read(&address_space_memory, 0x8060c058, MEMTXATTRS_UNSPECIFIED, &meta, 8);
-    address_space_read(&address_space_memory, 0x80375a88, MEMTXATTRS_UNSPECIFIED, &heap, 8);
-    address_space_read(&address_space_memory, 0x80375a90, MEMTXATTRS_UNSPECIFIED, &raw, 8);
-    address_space_read(&address_space_memory, 0x81000010, MEMTXATTRS_UNSPECIFIED, &rawaux, 8);
-    fprintf(stderr, "[DBG] PC=0x%lx X0=0x%lx(%ld) ESR=0x%lx EL=%d ELR=0x%lx FAR=0x%lx hash=0x%lx L1=0x%lx L3=0x%lx p0=0x%lx avb=0x%lx auth=0x%lx aux=0x%lx algo=0x%lx meta=0x%lx fl_next=0x%lx fl_prev=0x%lx fn_size=0x%lx ver=0x%lx\n",
+    uint64_t read_ops = 0, ops_base = 0, bdev = 0, l2_0 = 0, l3_97 = 0;
+    uint64_t rhead = 0, rbase = 0, rpa = 0, rsz = 0, avb_c = 0, avb_610 = 0, v1 = 0, v2 = 0;
+    address_space_read(&address_space_memory, 0x803546f8, MEMTXATTRS_UNSPECIFIED, &read_ops, 8);
+    address_space_read(&address_space_memory, 0x80354780, MEMTXATTRS_UNSPECIFIED, &ops_base, 8);
+    address_space_read(&address_space_memory, 0x8035f100, MEMTXATTRS_UNSPECIFIED, &bdev, 8);
+    address_space_read(&address_space_memory, 0x80356000, MEMTXATTRS_UNSPECIFIED, &l2_0, 8);
+    address_space_read(&address_space_memory, 0x803814b8, MEMTXATTRS_UNSPECIFIED, &l3_97, 8);
+    address_space_read(&address_space_memory, 0x803546a0, MEMTXATTRS_UNSPECIFIED, &rhead, 8);
+    if (rhead >= 0xffffffffe0000000ULL && rhead < 0xfffffffff0000000ULL) {
+        uint64_t rp = rhead - 0xffffffffe0000000ULL + 0x80000000ULL;
+        address_space_read(&address_space_memory, rp, MEMTXATTRS_UNSPECIFIED, &rbase, 8);
+        address_space_read(&address_space_memory, rp + 8, MEMTXATTRS_UNSPECIFIED, &rpa, 8);
+        address_space_read(&address_space_memory, rp + 0x10, MEMTXATTRS_UNSPECIFIED, &rsz, 8);
+    }
+    address_space_read(&address_space_memory, 0x803548c0, MEMTXATTRS_UNSPECIFIED, &avb_c, 8);
+    address_space_read(&address_space_memory, 0x80354610, MEMTXATTRS_UNSPECIFIED, &avb_610, 8);
+    if (avb_c >= 0xffffffffe0000000ULL && avb_c < 0xfffffffff0000000ULL &&
+        avb_610 >= 0xffffffffe0000000ULL && avb_610 < 0xfffffffff0000000ULL) {
+        uint64_t pa1 = avb_c - 0xffffffffe0000000ULL + 0x80000000ULL;
+        uint64_t pa2 = avb_610 - 0xffffffffe0000000ULL + 0x80000000ULL;
+        address_space_read(&address_space_memory, pa1, MEMTXATTRS_UNSPECIFIED, &v1, 8);
+        address_space_read(&address_space_memory, pa2, MEMTXATTRS_UNSPECIFIED, &v2, 8);
+    }
+    fprintf(stderr, "[DBG] PC=0x%lx X0=0x%lx ESR=0x%lx ELR=0x%lx FAR=0x%lx rbase=0x%lx rpa=0x%lx rsz=0x%lx v1=0x%lx v2=0x%lx\n",
             (unsigned long)cpu->env.pc,
-            (unsigned long)cpu->env.xregs[0], (long)(int64_t)cpu->env.xregs[0],
+            (unsigned long)cpu->env.xregs[0],
             (unsigned long)cpu->env.cp15.esr_el[1],
-            (int)(cpu->env.pstate & 0xc) >> 2,
             (unsigned long)cpu->env.elr_el[1],
             (unsigned long)cpu->env.cp15.far_el[1],
-            (unsigned long)hash, (unsigned long)pte, (unsigned long)pte2, (unsigned long)p0, (unsigned long)avb, (unsigned long)auth, (unsigned long)aux, (unsigned long)algo, (unsigned long)meta, (unsigned long)heap, (unsigned long)raw, (unsigned long)rawaux, (unsigned long)result);
+            (unsigned long)rbase, (unsigned long)rpa, (unsigned long)rsz, (unsigned long)v1, (unsigned long)v2);
 }
 
 static void ums9230_set_el(void *opaque)
