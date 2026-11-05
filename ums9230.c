@@ -455,10 +455,11 @@ static void dump_regs(void *opaque)
 {
     ARMCPU *cpu = ARM_CPU(opaque);
     uint64_t read_ops = 0, ops_base = 0, bdev = 0, l2_0 = 0, l2_ff = 0, l3_97 = 0;
-    uint64_t sx0 = 0, sx1 = 0, sx18 = 0, sx19 = 0, sx29 = 0, sx30 = 0;
+    uint64_t sx0 = 0, sx1 = 0, sx2 = 0, sx18 = 0, sx19 = 0, sx29 = 0, sx30 = 0;
     /* exception vector (0x1200) saves regs to [sp_orig-0x110 .. ]; sp_orig = 0xffffffffe035ef50 (frame after stp #-0xb0) */
     address_space_read(&address_space_memory, 0x8035ee40ULL, MEMTXATTRS_UNSPECIFIED, &sx0, 8);    /* x0 */
     address_space_read(&address_space_memory, 0x8035ee48ULL, MEMTXATTRS_UNSPECIFIED, &sx1, 8);    /* x1 */
+    address_space_read(&address_space_memory, 0x8035ee50ULL, MEMTXATTRS_UNSPECIFIED, &sx2, 8);    /* x2 */
     address_space_read(&address_space_memory, 0x8035eed0ULL, MEMTXATTRS_UNSPECIFIED, &sx18, 8);   /* x18 (elr) */
     address_space_read(&address_space_memory, 0x8035eed8ULL, MEMTXATTRS_UNSPECIFIED, &sx19, 8);   /* x19 */
     address_space_read(&address_space_memory, 0x8035ef28ULL, MEMTXATTRS_UNSPECIFIED, &sx29, 8);   /* x29 */
@@ -486,13 +487,14 @@ static void dump_regs(void *opaque)
         address_space_read(&address_space_memory, pa1, MEMTXATTRS_UNSPECIFIED, &v1, 8);
         address_space_read(&address_space_memory, pa2, MEMTXATTRS_UNSPECIFIED, &v2, 8);
     }
-    fprintf(stderr, "[DBG] PC=0x%lx X0=0x%lx X1=0x%lx X19=0x%lx ELR=0x%lx FAR=0x%lx\n",
+    fprintf(stderr, "[DBG] PC=0x%lx X0=0x%lx X1=0x%lx X19=0x%lx ELR=0x%lx FAR=0x%lx sx30=0x%lx sx29=0x%lx sx2=0x%lx\n",
             (unsigned long)cpu->env.pc,
             (unsigned long)cpu->env.xregs[0],
             (unsigned long)cpu->env.xregs[1],
             (unsigned long)cpu->env.xregs[19],
             (unsigned long)cpu->env.elr_el[1],
-            (unsigned long)cpu->env.cp15.far_el[1]);
+            (unsigned long)cpu->env.cp15.far_el[1],
+            (unsigned long)sx30, (unsigned long)sx29, (unsigned long)sx2);
 }
 
 static void ums9230_set_el(void *opaque)
