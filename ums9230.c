@@ -313,7 +313,7 @@ static void inject_vboot(void *opaque)
     W64(0x8060d158ULL, 0x0ULL);                /* entry2 size = 0 (end) */
     W64(0x803546a0ULL, 0xffffffffe060d100ULL); /* head -> entry0 (VA) */
     /* "avb heap" size global ([0x354610] -> VA 0xffffffffe03739b0) = 0 by default; set to RAM size */
-    W64(0x803739b0ULL, 0x20000000ULL);         /* heap size 512MB so alloc lands in mapped RAM */
+    W64(0x803739b0ULL, 0x100000ULL);           /* "avb heap" size = vbmeta size (SL8541E MEMORY[0xFFFFFFFFE0064408]) */
     W64(0x80356ff8ULL, 0x6000009fe00649ULL);   /* L2[0x1ff] = avb-heap VA (0xfffffffffffff000) -> PA 0x9fe00000, AP=1 RW */
     W64(0x8060d180ULL, 0xffffffffe060e000ULL); /* bump-allocator pointer -> 0xffffffffe060e000 */
 
