@@ -465,17 +465,28 @@ static void dump_regs(void *opaque)
         address_space_read(&address_space_memory, pa1, MEMTXATTRS_UNSPECIFIED, &v1, 8);
         address_space_read(&address_space_memory, pa2, MEMTXATTRS_UNSPECIFIED, &v2, 8);
     }
-    uint64_t heap_rem = 0, flb[4] = {0,0,0,0}, fsz = 0, fnext = 0, fprev = 0, fl127 = 0, flbit3 = 0;
+    uint64_t heap_sz = 0, heap_rem = 0, fl_prev = 0, fl_next = 0, ul_prev = 0, ul_next = 0;
+    uint64_t fc_prev = 0, fc_next = 0, fc_size = 0, fc2_prev = 0, fc2_next = 0, fc2_size = 0;
+    address_space_read(&address_space_memory, 0x80375a30ULL, MEMTXATTRS_UNSPECIFIED, &heap_sz, 8);
     address_space_read(&address_space_memory, 0x80375a38ULL, MEMTXATTRS_UNSPECIFIED, &heap_rem, 8);
-    address_space_read(&address_space_memory, 0x80375e60ULL, MEMTXATTRS_UNSPECIFIED, &fl127, 8);  /* free_lists[127] */
-    address_space_read(&address_space_memory, 0x80375e68ULL, MEMTXATTRS_UNSPECIFIED, &flb[0], 8);
-    address_space_read(&address_space_memory, 0x80375e70ULL, MEMTXATTRS_UNSPECIFIED, &flb[1], 8);
-    address_space_read(&address_space_memory, 0x80375e74ULL, MEMTXATTRS_UNSPECIFIED, &flbit3, 4); /* free_list_bits[3] */
-    address_space_read(&address_space_memory, 0x81000018ULL, MEMTXATTRS_UNSPECIFIED, &fsz, 8);
-    address_space_read(&address_space_memory, 0x81000020ULL, MEMTXATTRS_UNSPECIFIED, &fnext, 8);
-    address_space_read(&address_space_memory, 0x81000028ULL, MEMTXATTRS_UNSPECIFIED, &fprev, 8);
+    address_space_read(&address_space_memory, 0x80375a88ULL, MEMTXATTRS_UNSPECIFIED, &fl_prev, 8);  /* free-list head.prev */
+    address_space_read(&address_space_memory, 0x80375a90ULL, MEMTXATTRS_UNSPECIFIED, &fl_next, 8);  /* free-list head.next */
+    address_space_read(&address_space_memory, 0x80375a98ULL, MEMTXATTRS_UNSPECIFIED, &ul_prev, 8);  /* used-list head.prev */
+    address_space_read(&address_space_memory, 0x80375aa0ULL, MEMTXATTRS_UNSPECIFIED, &ul_next, 8);  /* used-list head.next */
+    address_space_read(&address_space_memory, 0x81000000ULL, MEMTXATTRS_UNSPECIFIED, &fc_prev, 8);
+    address_space_read(&address_space_memory, 0x81000008ULL, MEMTXATTRS_UNSPECIFIED, &fc_next, 8);
+    address_space_read(&address_space_memory, 0x81000010ULL, MEMTXATTRS_UNSPECIFIED, &fc_size, 8);
+    address_space_read(&address_space_memory, 0x81000070ULL, MEMTXATTRS_UNSPECIFIED, &fc2_prev, 8);
+    address_space_read(&address_space_memory, 0x81000078ULL, MEMTXATTRS_UNSPECIFIED, &fc2_next, 8);
+    address_space_read(&address_space_memory, 0x81000080ULL, MEMTXATTRS_UNSPECIFIED, &fc2_size, 8);
+    uint64_t rfp = 0, vsz = 0, avb0 = 0, l2_40 = 0, l2_41 = 0;
+    address_space_read(&address_space_memory, 0x800b8278ULL, MEMTXATTRS_UNSPECIFIED, &rfp, 8);  /* ops[+0x00] read_from_partition */
+    address_space_read(&address_space_memory, 0x80064408ULL, MEMTXATTRS_UNSPECIFIED, &vsz, 8);   /* vbmeta_img_size */
+    address_space_read(&address_space_memory, 0x80700000ULL, MEMTXATTRS_UNSPECIFIED, &avb0, 8);  /* vbmeta magic */
+    address_space_read(&address_space_memory, 0x80356200ULL, MEMTXATTRS_UNSPECIFIED, &l2_40, 8); /* L2[0x40] = VA 0xffffffffe0800000 */
+    address_space_read(&address_space_memory, 0x80356208ULL, MEMTXATTRS_UNSPECIFIED, &l2_41, 8); /* L2[0x41] */
     fprintf(stderr, "[DBG] PC=0x%lx X0=0x%lx X1=0x%lx X19=0x%lx ELR=0x%lx FAR=0x%lx sx30=0x%lx sx29=0x%lx sx2=0x%lx\n"
-            "      heap_rem=0x%lx flb=0x%lx/0x%lx flbit3=0x%lx fl127=0x%lx fsz=0x%lx fnext=0x%lx fprev=0x%lx\n",
+            "      hsz=0x%lx hrem=0x%lx fl=0x%lx/0x%lx ul=0x%lx/0x%lx fc={0x%lx,0x%lx,0x%lx} fc2={0x%lx,0x%lx,0x%lx} rfp=0x%lx vsz=0x%lx avb0=0x%lx l2_40=0x%lx l2_41=0x%lx\n",
             (unsigned long)cpu->env.pc,
             (unsigned long)cpu->env.xregs[0],
             (unsigned long)cpu->env.xregs[1],
@@ -483,9 +494,13 @@ static void dump_regs(void *opaque)
             (unsigned long)cpu->env.elr_el[1],
             (unsigned long)cpu->env.cp15.far_el[1],
             (unsigned long)sx30, (unsigned long)sx29, (unsigned long)sx2,
-            (unsigned long)heap_rem, (unsigned long)flb[0], (unsigned long)flb[1],
-            (unsigned long)flbit3, (unsigned long)fl127, (unsigned long)fsz,
-            (unsigned long)fnext, (unsigned long)fprev);
+            (unsigned long)heap_sz, (unsigned long)heap_rem,
+            (unsigned long)fl_prev, (unsigned long)fl_next,
+            (unsigned long)ul_prev, (unsigned long)ul_next,
+            (unsigned long)fc_prev, (unsigned long)fc_next, (unsigned long)fc_size,
+            (unsigned long)fc2_prev, (unsigned long)fc2_next, (unsigned long)fc2_size,
+            (unsigned long)rfp, (unsigned long)vsz, (unsigned long)avb0,
+            (unsigned long)l2_40, (unsigned long)l2_41);
 }
 
 static void ums9230_set_el(void *opaque)
