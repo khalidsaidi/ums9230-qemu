@@ -315,8 +315,34 @@ static void inject_vboot(void *opaque)
     /* "avb heap" size global ([0x354610] -> VA 0xffffffffe03739b0) = 0 by default; set to RAM size */
     W64(0x803739b0ULL, 0x100000ULL);           /* "avb heap" size = vbmeta size (SL8541E MEMORY[0xFFFFFFFFE0064408]) */
     W64(0x80356ff8ULL, 0x6000009fe00649ULL);   /* L2[0x1ff] = avb-heap VA (0xfffffffffffff000) -> PA 0x9fe00000, AP=1 RW */
-    W64(0x8060d180ULL, 0xffffffffe060e000ULL); /* bump-allocator pointer -> 0xffffffffe060e000 */
-    W64(0x800b82c0ULL, 0xffffffffe0075a98ULL); /* avb ctx [0x20] get_preloaded_partition -> return-0 stub (0x75a98) */
+    /* initialize the cmpctmalloc heap (theheap @ VA 0xffffffffe0375a30 -> PA 0x80375a30):
+     * struct heap = { size(0x0), remaining(0x8), mutex_t lock(0x10,0x28), free_lists[128](0x38), free_list_bits[4](0x438) }.
+     * one free chunk at PA 0x80600000 (left_sentinel + free_t + right_sentinel), in bucket 127. */
+    {
+        uint64_t h = 0x80375a30ULL, fs = 0x1fffe0ULL, area = 0x81000000ULL;
+        uint64_t sent = 0xffffffffe1000000ULL, free_va = 0xffffffffe1000010ULL;
+        W64(h + 0x00, 0x200000ULL);       /* theheap.size */
+        W64(h + 0x08, fs);                /* theheap.remaining */
+        W64(h + 0x10, 0x6D757478ULL);     /* lock.magic 'mutx' */
+        W64(h + 0x18, 0);                 /* lock.holder */
+        W64(h + 0x20, 0);                 /* lock.count */
+        W64(h + 0x28, 0);                 /* lock.wait */
+        for (int i = 0; i < 128; i++) W64(h + 0x38 + i*8, 0);  /* free_lists[] = NULL */
+        for (int i = 0; i < 4;   i++) W64(h + 0x438 + i*8, 0); /* free_list_bits[] = 0 */
+        W64(area + 0x00, 0);                 /* left_sentinel.left = NULL */
+        W64(area + 0x08, 0x10);              /* left_sentinel.size = 0x10 */
+        W64(area + 0x10 + 0x00, sent | 1);   /* free_t.header.left = sentinel|1 (tagged free) */
+        W64(area + 0x10 + 0x08, fs);         /* free_t.header.size */
+        W64(area + 0x10 + 0x10, 0);          /* free_t.next = NULL */
+        W64(area + 0x10 + 0x18, 0);          /* free_t.prev = NULL */
+        W64(area + 0x10 + fs + 0x00, free_va); /* right_sentinel.left = free */
+        W64(area + 0x10 + fs + 0x08, 0);       /* right_sentinel.size = 0 */
+        W64(h + 0x38 + 127*8, free_va);        /* free_lists[127] = free chunk */
+        W64(h + 0x438 + 3*8, 0x1);             /* free_list_bits[3] bit0 = bucket 127 */
+    }
+    W64(0x800b82c0ULL, 0xffffffffe0075a98ULL); /* avb_ops[+0x48] read_is_device_unlocked -> return-0 stub */
+    W64(0x800b8298ULL, 0x0ULL);                /* avb_ops[+0x20] get_preloaded_partition = NULL (libavb skips) */
+    W64(0x800b82d0ULL, 0xffffffffe0075a98ULL); /* avb_ops[+0x58] get_size_of_partition -> return-0 stub */
 
     /* map the rodata page holding the "AVB0" magic (VA 0xffffffffe00a5d78 -> PA 0x800a5d78)
      * via the level-3 table at 0x80381000, entry (0xa5d78>>12)=0xa5. */
