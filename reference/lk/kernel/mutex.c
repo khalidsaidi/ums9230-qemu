@@ -2,24 +2,9 @@
  * Copyright (c) 2008-2014 Travis Geiselbrecht
  * Copyright (c) 2012-2012 Shantanu Gupta
  *
- * Permission is hereby granted, free of charge, to any person obtaining
- * a copy of this software and associated documentation files
- * (the "Software"), to deal in the Software without restriction,
- * including without limitation the rights to use, copy, modify, merge,
- * publish, distribute, sublicense, and/or sell copies of the Software,
- * and to permit persons to whom the Software is furnished to do so,
- * subject to the following conditions:
- *
- * The above copyright notice and this permission notice shall be
- * included in all copies or substantial portions of the Software.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
- * EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
- * MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.
- * IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY
- * CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT,
- * TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE
- * SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+ * Use of this source code is governed by a MIT-style
+ * license that can be found in the LICENSE file or at
+ * https://opensource.org/licenses/MIT
  */
 
 /**
@@ -31,10 +16,11 @@
  */
 
 #include <kernel/mutex.h>
-#include <debug.h>
+
 #include <assert.h>
-#include <err.h>
 #include <kernel/thread.h>
+#include <lk/debug.h>
+#include <lk/err.h>
 #include <lk/init.h>
 
 static bool mutex_threading_ready;
@@ -42,20 +28,17 @@ static bool mutex_threading_ready;
 /* mutex_threading_ready is currently only used from a DEBUG_ASSERT */
 #if LK_DEBUGLEVEL > 1
 
-static void mutex_threading_ready_init_func(uint level)
-{
+static void mutex_threading_ready_init_func(uint level) {
     mutex_threading_ready = true;
 }
 
 LK_INIT_HOOK(mutex_threading_ready, mutex_threading_ready_init_func, LK_INIT_LEVEL_THREADING);
-
 #endif
 
 /**
  * @brief  Initialize a mutex_t
  */
-void mutex_init(mutex_t *m)
-{
+void mutex_init(mutex_t *m) {
     *m = (mutex_t)MUTEX_INITIAL_VALUE(*m);
 }
 
@@ -65,8 +48,7 @@ void mutex_init(mutex_t *m)
  * This function frees any resources that were allocated
  * in mutex_init().  The mutex_t object itself is not freed.
  */
-void mutex_destroy(mutex_t *m)
-{
+void mutex_destroy(mutex_t *m) {
     DEBUG_ASSERT(m->magic == MUTEX_MAGIC);
 
 #if LK_DEBUGLEVEL > 0
@@ -92,8 +74,7 @@ void mutex_destroy(mutex_t *m)
  * @return  NO_ERROR on success, ERR_TIMED_OUT on timeout,
  * other values on error
  */
-status_t mutex_acquire_timeout(mutex_t *m, lk_time_t timeout)
-{
+status_t mutex_acquire_timeout(mutex_t *m, lk_time_t timeout) {
     DEBUG_ASSERT(m->magic == MUTEX_MAGIC);
 
 #if LK_DEBUGLEVEL > 0
@@ -135,8 +116,7 @@ err:
 /**
  * @brief  Release mutex
  */
-status_t mutex_release(mutex_t *m)
-{
+status_t mutex_release(mutex_t *m) {
     DEBUG_ASSERT(m->magic == MUTEX_MAGIC);
 
 #if LK_DEBUGLEVEL > 0
@@ -158,3 +138,4 @@ status_t mutex_release(mutex_t *m)
     THREAD_UNLOCK(state);
     return NO_ERROR;
 }
+
