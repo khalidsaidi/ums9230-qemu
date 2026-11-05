@@ -89,3 +89,38 @@ U-Boot passes addr/len via SMC ("from uboot smc...addr:0x%x len:0x%x").
    `[0xE00643E0]=vbmeta VA`, `[0xE0064408]=0x100000` instead of hardcoding in patch_read.
 3. Locate where `-11` (`mov x0,#-0xb` at our 0x3f2f8) originates — it is in a DIFFERENT
    function (likely the trusty IPC / avb-service layer, not load_and_verify_vbmeta).
+
+
+## 7. Crypto flow (avb_vbmeta_image.c + avb_rsa.c + crypto/sha256_impl.c)
+
+`avb_vbmeta_image_verify(data, len, &pk, &pk_len)` (our 0x6ed70):
+1. `len >= sizeof(header)` (256), magic == "AVB0".
+2. `avb_vbmeta_image_header_to_host_byte_order` (big-endian -> host).
+3. version check: `required_libavb_version_major != AVB_VERSION_MAJOR` OR
+   `minor > AVB_VERSION_MINOR` -> **UNSUPPORTED_VERSION (3)**.
+4. block sizes multiple of 64; header+auth+aux <= len.
+5. hash within auth block; sig within auth block; pubkey within aux block.
+6. algorithm == NONE -> **OK_NOT_SIGNED (1)**.
+7. `hash_size == avb_get_algorithm_hash_size(algo)` (SHA256_RSA4096 -> 32).
+8. `header_block = data; auth_block = data+256; aux_block = auth+auth_size;`
+9. **computed_hash = SHA256(header_block(256) || auxiliary_block(aux_size))**  <- hash covers header + aux, NOT auth.
+10. `image_verify_rsa(h, auth_block, aux_block, computed_hash)`.
+
+`avb_rsa_verify(algorithm, key, key_len, sig, sig_len, hash, hash_len)`:
+1. `iavb_parse_key_data(key)` -> modulus + rr (Montgomery R^2 mod n).
+2. sig_len == key_len (512 for RSA4096); hash_len == 32.
+3. `padding = PKCS1.5 prefix` (SHA256_RSA4096 = 0x30 0x31 0x30 0x0d 0x06 0x09 0x60 0x86 0x48 0x01 0x65 0x03 0x04 0x02 0x01 0x05 0x00 0x04 0x20, then 0xff filler to total 512).
+4. `modpowF4(parsed_key, sig)` = `sig^65537 mod n` (Montgomery, exponent 0x10001).
+5. result must == `padding || hash`.
+
+So the full verify = SHA256(header||aux) then RSA-4096 PKCS#1-v1.5 verify with e=65537.
+Our CE device implements exactly this and already returns 0 for the stock vbmeta.
+
+## 8. Header field byte order (avb_vbmeta_image.h)
+All `AvbVBMetaImageHeader` fields are **network byte order (big-endian)**; the
+parser byteswaps via `avb_vbmeta_image_header_to_host_byte_order()` before use.
+Offsets: magic[0], major[4], minor[8], auth_size[0xc], aux_size[0x14],
+algorithm_type[0x1c], hash_offset[0x20], hash_size[0x28], signature_offset[0x30],
+signature_size[0x38], public_key_offset[0x40], public_key_size[0x48],
+public_key_metadata_offset[0x50], public_key_metadata_size[0x58],
+descriptors_offset[0x60], descriptors_size[0x68], rollback_index[0x70], flags[0x78].
