@@ -329,7 +329,9 @@ static void inject_vboot(void *opaque)
         W64(h + 0x20, 0);                 /* lock.count */
         W64(h + 0x28, 0);                 /* lock.wait */
         for (int i = 0; i < 128; i++) W64(h + 0x38 + i*8, 0);  /* free_lists[] = NULL */
-        for (int i = 0; i < 4;   i++) W64(h + 0x438 + i*8, 0); /* free_list_bits[] = 0 */
+        /* free_list_bits is uint32_t[4] (4-byte words) at 0x438 */
+        W64(h + 0x438, 0);                /* free_list_bits[0..1] = 0 */
+        W64(h + 0x440, 0x1ULL << 32);     /* free_list_bits[2]=0, [3] bit0 = bucket 127 */
         W64(area + 0x00, 0);                 /* left_sentinel.left = NULL */
         W64(area + 0x08, 0x10);              /* left_sentinel.size = 0x10 */
         W64(area + 0x10 + 0x00, sent | 1);   /* free_t.header.left = sentinel|1 (tagged free) */
@@ -339,7 +341,6 @@ static void inject_vboot(void *opaque)
         W64(area + 0x10 + fs + 0x00, free_va); /* right_sentinel.left = free */
         W64(area + 0x10 + fs + 0x08, 0);       /* right_sentinel.size = 0 */
         W64(h + 0x38 + 127*8, free_va);        /* free_lists[127] = free chunk */
-        W64(h + 0x438 + 3*8, 0x1);             /* free_list_bits[3] bit0 = bucket 127 */
     }
     W64(0x800b82c0ULL, 0xffffffffe006f354ULL); /* avb_ops[+0x48] read_is_device_unlocked = REAL fn (0x6f354) */
     W64(0x800b8298ULL, 0x0ULL);                /* avb_ops[+0x20] get_preloaded_partition = NULL (libavb skips) */
@@ -356,30 +357,7 @@ static void inject_vboot(void *opaque)
         fprintf(stderr, "[DBG] L3[0xa5] @0x80381528 = 0x%lx\n", (unsigned long)chk);
     }
 
-    /* initialize the heap free-list/used-list heads at 0xffffffffe0375a30.
-     * malloc reads [heap+0x58]/[heap+0x60] as the FREE-list head (x24 = heap+0x58),
-     * and the drain/free use [heap+0x68]/[heap+0x70] as the USED-list head. */
-    {
-        uint64_t h0 = 0xffffffffe1000000ULL, h1 = 0xffffffffe1000000ULL,
-                 h2 = 0xffffffffe0375a98ULL, h3 = 0xffffffffe0375a98ULL;
-        address_space_write(&address_space_memory, 0x80375a88ULL, MEMTXATTRS_UNSPECIFIED, &h0, 8);
-        address_space_write(&address_space_memory, 0x80375a90ULL, MEMTXATTRS_UNSPECIFIED, &h1, 8);
-        address_space_write(&address_space_memory, 0x80375a98ULL, MEMTXATTRS_UNSPECIFIED, &h2, 8);
-        address_space_write(&address_space_memory, 0x80375aa0ULL, MEMTXATTRS_UNSPECIFIED, &h3, 8);
-        {
-            uint64_t rb0 = 0, rb1 = 0;
-            address_space_read(&address_space_memory, 0x80375a88ULL, MEMTXATTRS_UNSPECIFIED, &rb0, 8);
-            address_space_read(&address_space_memory, 0x80375a90ULL, MEMTXATTRS_UNSPECIFIED, &rb1, 8);
-            fprintf(stderr, "[DBG] heap-write-readback: 0x80375a88=0x%lx 0x80375a90=0x%lx\n",
-                    (unsigned long)rb0, (unsigned long)rb1);
-        }
-    }
-
-    /* place a single large free chunk so malloc can satisfy the 0x100/0xd0/0x190 allocs.
-     * free node data at PA 0x81000000 -> VA 0xffffffffe1000000 (write_heap maps VA[16MB..64MB)->PA 0x81000000). */
-    W64(0x81000000ULL,      0xffffffffe0375a88ULL); /* free.prev = &free-head (heap+0x58) */
-    W64(0x81000000ULL + 8,  0xffffffffe0375a88ULL); /* free.next = &free-head (heap+0x58) */
-    W64(0x81000000ULL + 0x10, 0x2000ULL);            /* free.size */
+    /* (old heap free-list head init removed — it conflicted with the cmpctmalloc init above) */
 
     /* populate the avb crypto ops table (what 0x6f890 would build) so the hash/RSA
      * engine can run. ops struct at VA 0xffffffffe060c000 (PA 0x8060c000). */
@@ -489,14 +467,27 @@ static void dump_regs(void *opaque)
         address_space_read(&address_space_memory, pa1, MEMTXATTRS_UNSPECIFIED, &v1, 8);
         address_space_read(&address_space_memory, pa2, MEMTXATTRS_UNSPECIFIED, &v2, 8);
     }
-    fprintf(stderr, "[DBG] PC=0x%lx X0=0x%lx X1=0x%lx X19=0x%lx ELR=0x%lx FAR=0x%lx sx30=0x%lx sx29=0x%lx sx2=0x%lx\n",
+    uint64_t heap_rem = 0, flb[4] = {0,0,0,0}, fsz = 0, fnext = 0, fprev = 0;
+    address_space_read(&address_space_memory, 0x80375a38ULL, MEMTXATTRS_UNSPECIFIED, &heap_rem, 8);
+    address_space_read(&address_space_memory, 0x80375e68ULL, MEMTXATTRS_UNSPECIFIED, &flb[0], 8);
+    address_space_read(&address_space_memory, 0x80375e70ULL, MEMTXATTRS_UNSPECIFIED, &flb[1], 8);
+    address_space_read(&address_space_memory, 0x80375e78ULL, MEMTXATTRS_UNSPECIFIED, &flb[2], 8);
+    address_space_read(&address_space_memory, 0x80375e80ULL, MEMTXATTRS_UNSPECIFIED, &flb[3], 8);
+    address_space_read(&address_space_memory, 0x81000018ULL, MEMTXATTRS_UNSPECIFIED, &fsz, 8);
+    address_space_read(&address_space_memory, 0x81000020ULL, MEMTXATTRS_UNSPECIFIED, &fnext, 8);
+    address_space_read(&address_space_memory, 0x81000028ULL, MEMTXATTRS_UNSPECIFIED, &fprev, 8);
+    fprintf(stderr, "[DBG] PC=0x%lx X0=0x%lx X1=0x%lx X19=0x%lx ELR=0x%lx FAR=0x%lx sx30=0x%lx sx29=0x%lx sx2=0x%lx\n"
+            "      heap_rem=0x%lx flb=0x%lx/0x%lx/0x%lx/0x%lx fsz=0x%lx fnext=0x%lx fprev=0x%lx\n",
             (unsigned long)cpu->env.pc,
             (unsigned long)cpu->env.xregs[0],
             (unsigned long)cpu->env.xregs[1],
             (unsigned long)cpu->env.xregs[19],
             (unsigned long)cpu->env.elr_el[1],
             (unsigned long)cpu->env.cp15.far_el[1],
-            (unsigned long)sx30, (unsigned long)sx29, (unsigned long)sx2);
+            (unsigned long)sx30, (unsigned long)sx29, (unsigned long)sx2,
+            (unsigned long)heap_rem, (unsigned long)flb[0], (unsigned long)flb[1],
+            (unsigned long)flb[2], (unsigned long)flb[3], (unsigned long)fsz,
+            (unsigned long)fnext, (unsigned long)fprev);
 }
 
 static void ums9230_set_el(void *opaque)
