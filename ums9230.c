@@ -316,6 +316,7 @@ static void inject_vboot(void *opaque)
     W64(0x803739b0ULL, 0x100000ULL);           /* "avb heap" size = vbmeta size (SL8541E MEMORY[0xFFFFFFFFE0064408]) */
     W64(0x80356ff8ULL, 0x6000009fe00649ULL);   /* L2[0x1ff] = avb-heap VA (0xfffffffffffff000) -> PA 0x9fe00000, AP=1 RW */
     W64(0x8060d180ULL, 0xffffffffe060e000ULL); /* bump-allocator pointer -> 0xffffffffe060e000 */
+    W64(0x800b82c0ULL, 0xffffffffe0075a98ULL); /* avb ctx [0x20] get_preloaded_partition -> return-0 stub (0x75a98) */
 
     /* map the rodata page holding the "AVB0" magic (VA 0xffffffffe00a5d78 -> PA 0x800a5d78)
      * via the level-3 table at 0x80381000, entry (0xa5d78>>12)=0xa5. */
