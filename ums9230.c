@@ -483,14 +483,18 @@ static void dump_regs(void *opaque)
     address_space_read(&address_space_memory, 0x81000070ULL, MEMTXATTRS_UNSPECIFIED, &fc2_prev, 8);
     address_space_read(&address_space_memory, 0x81000078ULL, MEMTXATTRS_UNSPECIFIED, &fc2_next, 8);
     address_space_read(&address_space_memory, 0x81000080ULL, MEMTXATTRS_UNSPECIFIED, &fc2_size, 8);
-    uint64_t rfp = 0, vsz = 0, avb0 = 0, l2_40 = 0, l2_41 = 0;
-    address_space_read(&address_space_memory, 0x800b8278ULL, MEMTXATTRS_UNSPECIFIED, &rfp, 8);  /* ops[+0x00] read_from_partition */
+    uint64_t rfp = 0, vsz = 0, avb0 = 0, l2_40 = 0, l2_41 = 0, stk[6] = {0};
+    address_space_read(&address_space_memory, 0x800b8290ULL, MEMTXATTRS_UNSPECIFIED, &rfp, 8);  /* ops[+0x00] read_from_partition */
     address_space_read(&address_space_memory, 0x80064408ULL, MEMTXATTRS_UNSPECIFIED, &vsz, 8);   /* vbmeta_img_size */
     address_space_read(&address_space_memory, 0x80700000ULL, MEMTXATTRS_UNSPECIFIED, &avb0, 8);  /* vbmeta magic */
     address_space_read(&address_space_memory, 0x80356200ULL, MEMTXATTRS_UNSPECIFIED, &l2_40, 8); /* L2[0x40] = VA 0xffffffffe0800000 */
     address_space_read(&address_space_memory, 0x80356208ULL, MEMTXATTRS_UNSPECIFIED, &l2_41, 8); /* L2[0x41] */
+    for (int si = 0; si < 6; si++) {
+        uint64_t spa = sx29 - 8 + si*8;   /* stack around fault x29 (from exception frame) */
+        address_space_read(&address_space_memory, spa, MEMTXATTRS_UNSPECIFIED, &stk[si], 8);
+    }
     fprintf(stderr, "[DBG] PC=0x%lx X0=0x%lx X1=0x%lx X19=0x%lx ELR=0x%lx FAR=0x%lx sx30=0x%lx sx29=0x%lx sx2=0x%lx\n"
-            "      hsz=0x%lx hrem=0x%lx fl=0x%lx/0x%lx ul=0x%lx/0x%lx fc={0x%lx,0x%lx,0x%lx} fc2={0x%lx,0x%lx,0x%lx} rfp=0x%lx vsz=0x%lx avb0=0x%lx l2_40=0x%lx l2_41=0x%lx\n",
+            "      hsz=0x%lx hrem=0x%lx fl=0x%lx/0x%lx ul=0x%lx/0x%lx fc={0x%lx,0x%lx,0x%lx} fc2={0x%lx,0x%lx,0x%lx} rfp=0x%lx vsz=0x%lx avb0=0x%lx l2_40=0x%lx l2_41=0x%lx stk=0x%lx/0x%lx/0x%lx/0x%lx/0x%lx/0x%lx\n",
             (unsigned long)cpu->env.pc,
             (unsigned long)cpu->env.xregs[0],
             (unsigned long)cpu->env.xregs[1],
@@ -504,7 +508,9 @@ static void dump_regs(void *opaque)
             (unsigned long)fc_prev, (unsigned long)fc_next, (unsigned long)fc_size,
             (unsigned long)fc2_prev, (unsigned long)fc2_next, (unsigned long)fc2_size,
             (unsigned long)rfp, (unsigned long)vsz, (unsigned long)avb0,
-            (unsigned long)l2_40, (unsigned long)l2_41);
+            (unsigned long)l2_40, (unsigned long)l2_41,
+            (unsigned long)stk[0], (unsigned long)stk[1], (unsigned long)stk[2],
+            (unsigned long)stk[3], (unsigned long)stk[4], (unsigned long)stk[5]);
 }
 
 static void ums9230_set_el(void *opaque)
