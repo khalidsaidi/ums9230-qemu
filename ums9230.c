@@ -390,6 +390,7 @@ static void inject_vboot(void *opaque)
     /* drive avb_slot_verify (0x713f8) with the input struct */
     cpu->env.pstate = 0x3C5;            /* EL1h + DAIF masked */
     cpu->env.xregs[0] = 0xffffffffe060d000ULL; /* input struct (VA) */
+    cpu->env.xregs[1] = 0xffffffffe060d000ULL; /* mirror in x1 for clobber test */
     fprintf(stderr, "[DBG] inject: x0=0x%lx\n", (unsigned long)cpu->env.xregs[0]);
     cpu->env.xregs[30] = 0xffffffffe0001888ULL; /* x30 = return addr (idle loop) */
     cpu->env.cp15.vbar_el[1] = 0xffffffffe0001000ULL; /* vector table */
@@ -408,11 +409,14 @@ static void dump_regs(void *opaque)
 {
     ARMCPU *cpu = ARM_CPU(opaque);
     uint64_t read_ops = 0, ops_base = 0, bdev = 0, l2_0 = 0, l2_ff = 0, l3_97 = 0;
-    uint64_t sx0 = 0, sx1 = 0, sx19 = 0;
-    /* exception vector saves x0@[sp-0x110], x19@[sp-0x110+0x78]; sp (frame) = 0xffffffffe035ef50 */
-    address_space_read(&address_space_memory, 0x8035ee40ULL, MEMTXATTRS_UNSPECIFIED, &sx0, 8);
-    address_space_read(&address_space_memory, 0x8035ee48ULL, MEMTXATTRS_UNSPECIFIED, &sx1, 8);
-    address_space_read(&address_space_memory, 0x8035eeb8ULL, MEMTXATTRS_UNSPECIFIED, &sx19, 8);
+    uint64_t sx0 = 0, sx1 = 0, sx18 = 0, sx19 = 0, sx29 = 0, sx30 = 0;
+    /* exception vector (0x1200) saves regs to [sp_orig-0x110 .. ]; sp_orig = 0xffffffffe035ef50 (frame after stp #-0xb0) */
+    address_space_read(&address_space_memory, 0x8035ee40ULL, MEMTXATTRS_UNSPECIFIED, &sx0, 8);    /* x0 */
+    address_space_read(&address_space_memory, 0x8035ee48ULL, MEMTXATTRS_UNSPECIFIED, &sx1, 8);    /* x1 */
+    address_space_read(&address_space_memory, 0x8035eed0ULL, MEMTXATTRS_UNSPECIFIED, &sx18, 8);   /* x18 (elr) */
+    address_space_read(&address_space_memory, 0x8035eed8ULL, MEMTXATTRS_UNSPECIFIED, &sx19, 8);   /* x19 */
+    address_space_read(&address_space_memory, 0x8035ef28ULL, MEMTXATTRS_UNSPECIFIED, &sx29, 8);   /* x29 */
+    address_space_read(&address_space_memory, 0x8035ef30ULL, MEMTXATTRS_UNSPECIFIED, &sx30, 8);   /* x30 */
     uint64_t rhead = 0, rbase = 0, rpa = 0, rsz = 0, avb_c = 0, avb_610 = 0, v1 = 0, v2 = 0;
     address_space_read(&address_space_memory, 0x803546f8, MEMTXATTRS_UNSPECIFIED, &read_ops, 8);
     address_space_read(&address_space_memory, 0x80354780, MEMTXATTRS_UNSPECIFIED, &ops_base, 8);
@@ -436,11 +440,11 @@ static void dump_regs(void *opaque)
         address_space_read(&address_space_memory, pa1, MEMTXATTRS_UNSPECIFIED, &v1, 8);
         address_space_read(&address_space_memory, pa2, MEMTXATTRS_UNSPECIFIED, &v2, 8);
     }
-    fprintf(stderr, "[DBG] PC=0x%lx X0=0x%lx X19=0x%lx sx0=0x%lx sx1=0x%lx sx19=0x%lx ELR=0x%lx FAR=0x%lx\n",
+    fprintf(stderr, "[DBG] PC=0x%lx X0=0x%lx X1=0x%lx X19=0x%lx ELR=0x%lx FAR=0x%lx\n",
             (unsigned long)cpu->env.pc,
             (unsigned long)cpu->env.xregs[0],
+            (unsigned long)cpu->env.xregs[1],
             (unsigned long)cpu->env.xregs[19],
-            (unsigned long)sx0, (unsigned long)sx1, (unsigned long)sx19,
             (unsigned long)cpu->env.elr_el[1],
             (unsigned long)cpu->env.cp15.far_el[1]);
 }
