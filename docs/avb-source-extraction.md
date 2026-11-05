@@ -232,3 +232,26 @@ Read chain:
 This is why `patch_read` (which hacks `0x74f8c` into a plain memcpy) is unfaithful — it
 short-circuits the real `0x74f8c -> 0x74980` chain. The faithful fix is to let that chain
 run and only populate `0x74980`'s source globals (`g_avbUserData.vbmeta_img_addr`).
+
+
+## 13. 0x74980 == avb_get_image_buffer (the iomap, not a memcpy)
+
+Disassembly of 0x74980 matches `avb_get_image_buffer @ 0x940475E8`:
+- allocates a 0x58-byte descriptor (via 0x79a8c == malloc), copies the partition name,
+  stores size/offset, walks a mapped-buffer list, and calls 0x7496c (the map/copy).
+- The SL8541E source reads `g_avbUserData.img_addr` (`0xFFFFFFFFE00643D8`) and checks the
+  `"SCI1"` modem-image header to locate the image offset/length.
+
+So the real read path is the SPRD "iomap" (map the physical image, then return a buffer),
+NOT the plain `avb_read_from_partition` memcpy. Our `patch_read` (a straight memcpy into
+0x74f8c) short-circuits this whole iomap chain.
+
+Faithful fix = populate `g_avbUserData`:
+```
+0xFFFFFFFFE00643D8 = img_addr         (boot image VA)
+0xFFFFFFFFE00643E0 = vbmeta_img_addr  (vbmeta VA)
+0xFFFFFFFFE0064404 = img_size
+0xFFFFFFFFE0064408 = vbmeta_img_size
+```
+then let `0x74f8c -> 0x74980 -> 0x7496c` run and delete `patch_read` + the other
+`load_and_verify_vbmeta` patches.
