@@ -315,6 +315,7 @@ static void inject_vboot(void *opaque)
     /* "avb heap" size global ([0x354610] -> VA 0xffffffffe03739b0) = 0 by default; set to RAM size */
     W64(0x803739b0ULL, 0x20000000ULL);         /* heap size 512MB so alloc lands in mapped RAM */
     W64(0x80356ff8ULL, 0x6000009fe00649ULL);   /* L2[0x1ff] = avb-heap VA (0xfffffffffffff000) -> PA 0x9fe00000, AP=1 RW */
+    W64(0x8060d180ULL, 0xffffffffe060e000ULL); /* bump-allocator pointer -> 0xffffffffe060e000 */
 
     /* map the rodata page holding the "AVB0" magic (VA 0xffffffffe00a5d78 -> PA 0x800a5d78)
      * via the level-3 table at 0x80381000, entry (0xa5d78>>12)=0xa5. */
