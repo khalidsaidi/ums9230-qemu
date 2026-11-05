@@ -431,13 +431,15 @@ static void dump_regs(void *opaque)
         address_space_read(&address_space_memory, pa1, MEMTXATTRS_UNSPECIFIED, &v1, 8);
         address_space_read(&address_space_memory, pa2, MEMTXATTRS_UNSPECIFIED, &v2, 8);
     }
-    fprintf(stderr, "[DBG] PC=0x%lx X0=0x%lx ESR=0x%lx ELR=0x%lx FAR=0x%lx L2ff=0x%lx avb_c=0x%lx avb_610=0x%lx v1=0x%lx v2=0x%lx\n",
+    fprintf(stderr, "[DBG] PC=0x%lx X0=0x%lx X1=0x%lx X19=0x%lx X29=0x%lx ESR=0x%lx ELR=0x%lx FAR=0x%lx\n",
             (unsigned long)cpu->env.pc,
             (unsigned long)cpu->env.xregs[0],
+            (unsigned long)cpu->env.xregs[1],
+            (unsigned long)cpu->env.xregs[19],
+            (unsigned long)cpu->env.xregs[29],
             (unsigned long)cpu->env.cp15.esr_el[1],
             (unsigned long)cpu->env.elr_el[1],
-            (unsigned long)cpu->env.cp15.far_el[1],
-            (unsigned long)l2_ff, (unsigned long)avb_c, (unsigned long)avb_610, (unsigned long)v1, (unsigned long)v2);
+            (unsigned long)cpu->env.cp15.far_el[1]);
 }
 
 static void ums9230_set_el(void *opaque)
@@ -538,6 +540,18 @@ static void ums9230_init(MachineState *machine)
         {
             QEMUTimer *t = timer_new_ns(QEMU_CLOCK_VIRTUAL, dump_regs, cpuobj);
             timer_mod(t, qemu_clock_get_ns(QEMU_CLOCK_VIRTUAL) + 2000000ULL);
+        }
+        {
+            QEMUTimer *t = timer_new_ns(QEMU_CLOCK_VIRTUAL, dump_regs, cpuobj);
+            timer_mod(t, qemu_clock_get_ns(QEMU_CLOCK_VIRTUAL) + 2000500ULL);
+        }
+        {
+            QEMUTimer *t = timer_new_ns(QEMU_CLOCK_VIRTUAL, dump_regs, cpuobj);
+            timer_mod(t, qemu_clock_get_ns(QEMU_CLOCK_VIRTUAL) + 2001000ULL);
+        }
+        {
+            QEMUTimer *t = timer_new_ns(QEMU_CLOCK_VIRTUAL, dump_regs, cpuobj);
+            timer_mod(t, qemu_clock_get_ns(QEMU_CLOCK_VIRTUAL) + 2001500ULL);
         }
         {
             QEMUTimer *t = timer_new_ns(QEMU_CLOCK_VIRTUAL, dump_regs, cpuobj);
