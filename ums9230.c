@@ -387,6 +387,8 @@ static void inject_vboot(void *opaque)
     /* set up the avb_slot_verify (0x713f8) input struct: [x0+8]=physical vbmeta addr, [x0+0xc]=size */
     W64(0x8060d000ULL + 8, 0x80700000ULL);  /* physical vbmeta addr (SL8541E process_vboot_verify_smc [a1+8]) */
     W64(0x8060d000ULL + 0xc, 0x100000ULL);  /* size (full vbmeta) */
+    { uint64_t rb = 0; address_space_read(&address_space_memory, 0x8060d008ULL, MEMTXATTRS_UNSPECIFIED, &rb, 8);
+      fprintf(stderr, "[DBG] input[+8]=0x%lx input[+0xc]=0x%lx\n", (unsigned long)rb, 0x100000UL); }
 
     /* populate read_ops mapped-buffer list so the real 0x74f8c->0x74980 read chain finds the vbmeta.
      * read_ops = [0x3546f8] = 0xffffffffe0380330 ; list head = read_ops+0x48 = 0xffffffffe0380378.
@@ -403,6 +405,7 @@ static void inject_vboot(void *opaque)
     cpu->env.pstate = 0x3C5;            /* EL1h + DAIF masked */
     cpu->env.xregs[0] = 0xffffffffe060d000ULL; /* input struct (VA) */
     cpu->env.xregs[1] = 0xffffffffe060d000ULL; /* mirror in x1 for clobber test */
+    cpu->env.xregs[2] = 0xffffffffe060d000ULL; /* mirror in x2 (x1 is clobbered by adrp at 0x713fc) */
     fprintf(stderr, "[DBG] inject: x0=0x%lx\n", (unsigned long)cpu->env.xregs[0]);
     cpu->env.xregs[30] = 0xffffffffe0001888ULL; /* x30 = return addr (idle loop) */
     cpu->env.cp15.vbar_el[1] = 0xffffffffe0001000ULL; /* vector table */
