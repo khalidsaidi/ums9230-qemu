@@ -255,3 +255,24 @@ Faithful fix = populate `g_avbUserData`:
 ```
 then let `0x74f8c -> 0x74980 -> 0x7496c` run and delete `patch_read` + the other
 `load_and_verify_vbmeta` patches.
+
+
+## 14. vbmeta physical address comes from the input struct, not a global
+
+No code/data in our payload references the vbmeta VA `0xffffffffe0700000` (adrp or stored
+pointer scan = 0 hits). So the vbmeta address is passed in at runtime:
+
+`0x713f8` reads the input struct: `[x19+8] = offset/addr`, `[x19+0xc] = size`, and passes
+`[x19+8]` to the read as the physical address (page-aligned, `size 0x1000`, mode `0x30`).
+This matches SL8541E `process_vboot_verify_smc`: `[a1+8]=addr`, `[a1+12]=len`,
+`sprd_iomap("sprdsec", addr, 0x1000, ...)`.
+
+Our injection currently writes `[0x8060d008]=0x1000` — that should be the **physical vbmeta
+address `0x80700000`**. `patch_read` masked this by hardcoding the vbmeta.
+
+The read chain `0x74f8c -> 0x74980` walks a mapped-buffer list at `[read_ops + 0x48]`
+(`read_ops = 0xffffffffe0380330`); each entry is `{offset[+0x38], base[+0x40], size[+0x34]}`,
+doubly-linked via `[+8]=next`. Faithful fix:
+1. `[0x8060d008] = 0x80700000` (physical vbmeta addr), `[0x8060d00c] = 0x100000`.
+2. Populate `read_ops[0x48]` list with one entry `{offset=0, base=0xffffffffe0700000, size=0x100000}`.
+3. Delete `patch_read` and let the real chain run.
