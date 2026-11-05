@@ -208,3 +208,27 @@ avb_slot_verify(ops, requested_partitions, ab_suffix, flags, hashtree_mode, &out
   ... validate_vbmeta_public_key, rollback indexes, etc ...
 ```
 Result enum `AvbSlotVerifyResult`: 0 OK, 3 ERROR_VERIFICATION, 7 ERROR_UNSUPPORTED_VERSION.
+
+
+## 12. Our payload's real read chain (disassembled, unpatched)
+
+`0x713f8` (load_and_verify_vbmeta) actually reads the **input struct**, not a global:
+```
+0x71454: ldr w20, [x19, #0xc]   ; size  = input->[0xc]
+0x71458: ldr w19, [x19, #8]     ; offset = input->[8]
+0x71494: bl 0x7e47c             ; read(ops=0xffffffffe0097168, offset, 0x1000, 0x30, &[x29+0x98])
+```
+So the injection's input struct ([+8]=offset, [+0xc]=size) is correct.
+
+Read chain:
+```
+0x713f8 --bl--> 0x7e47c  (wrapper: ldr read_ops=[0x3546f8]; b 0x74f8c)
+0x74f8c (read ops): page-align checks -> mutex_acquire(0x39ad4)
+                    -> bl 0x74980 (the actual read)
+                    -> *buf = [result + 0x38]
+                    -> mutex_release(0x39c30) -> return 0
+0x74980 = the actual low-level read (still to disassemble; likely reads g_avbUserData.vbmeta_img_addr)
+```
+This is why `patch_read` (which hacks `0x74f8c` into a plain memcpy) is unfaithful — it
+short-circuits the real `0x74f8c -> 0x74980` chain. The faithful fix is to let that chain
+run and only populate `0x74980`'s source globals (`g_avbUserData.vbmeta_img_addr`).
