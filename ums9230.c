@@ -301,6 +301,7 @@ static void inject_vboot(void *opaque)
     W64(0x803814b8ULL, 0x8009764bULL);        /* L3[0x97] = vbmeta buffer page (VA 0xffffffffe0097000 -> PA 0x80097000), AF=1 AP=1 RW */
     W64(0x803814c0ULL, 0x8009864bULL);        /* L3[0x98] = vbmeta buffer 2nd page (VA 0xffffffffe0098000 -> PA 0x80098000), AF=1 AP=1 RW */
     W64(0x803812f0ULL, 0x8035e64bULL);        /* L3[0x5e] = stack page (VA 0xffffffffe035e000 -> PA 0x8035e000), AF=1 AP=1 RW */
+    W64(0x803813f8ULL, 0x8007f64bULL);        /* L3[0x7f] = is_device_unlocked global page (VA 0xffffffffe007f000), RW */
     /* mmu_initial_mappings for paddr_to_kvaddr (0x745f0): entry {phys, virt, size, flags, name} (0x28 B) */
     W64(0x8060d100ULL, 0x80000000ULL);         /* entry0[0] = phys (RAM) */
     W64(0x8060d108ULL, 0xffffffffe0000000ULL); /* entry0[8] = virt */
