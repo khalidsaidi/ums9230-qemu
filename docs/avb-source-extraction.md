@@ -276,3 +276,33 @@ doubly-linked via `[+8]=next`. Faithful fix:
 1. `[0x8060d008] = 0x80700000` (physical vbmeta addr), `[0x8060d00c] = 0x100000`.
 2. Populate `read_ops[0x48]` list with one entry `{offset=0, base=0xffffffffe0700000, size=0x100000}`.
 3. Delete `patch_read` and let the real chain run.
+
+
+## 15. uis7861-uboot-avb-bypass (SAME SoC: UMS9230/QOGIRL6) — key findings
+
+The `uis7861-uboot-avb-bypass` repo is for **Unisoc UMS9230 (QOGIRL6), UIS7861/7863**
+— the exact SoC family as our device. It documents the boot-time verification in u-boot.
+
+Two independent walls:
+1. **Unisoc-proprietary layer**: `set_root_of_trust` / `sprd_verify_cert` (runs BEFORE AVB).
+2. **Standard Google AVB**: `avb_slot_verify` (libavb strings confirmed embedded in u-boot).
+
+Key findings (docs/en/02-uboot-patching.md):
+- A function inside `set_root_of_trust` has a **deliberate infinite loop** (`while(1)`)
+  triggered when the AVB verification result is non-zero. This is the `mov x0,#-0xb`
+  (`-11`) print + `cmp w19,#3` loop we saw at our 0x3f2d0 — **the `-11` is a print
+  argument, NOT the AVB return value.**
+- Root cause of the loop: in `load_and_verify_vbmeta`'s VERIFICATION_DISABLED branch,
+  `get_size_of_partition` is called WITHOUT a null check:
+  `iVar6 = (**(code **)(ops + 0x58))(ops, partition_name, &out_size);`
+  Every OTHER ops fn (+0x18,+0x30,+0x38,+0x50,+0x60,+0x68) is null-checked; only +0x58
+  (get_size_of_partition) is missing the check and is unimplemented on this device.
+- AVB image: fixed 256-byte header, magic "AVB0"; **flags field at offset 120 (0x78),
+  4 bytes big-endian**: 0x1 HASHTREE_DISABLED, 0x2 VERIFICATION_DISABLED.
+- Final u-boot patch set: (1) root_of_trust CBZ->B, (2) skip the unchecked +0x58 call,
+  (3) bypass the infinite loop CBZ->B.
+
+Our vbmeta flags @0x78 = 0x0 (neither disabled), so we take the NORMAL branch, not the
+VERIFICATION_DISABLED branch — the +0x58 bug is NOT our current path. But the `-11`-is-a-
+print insight stands: the goal's "return -11" is actually "panic loop prints -11"; the
+real AVB returns are 0/3/6/7 (load_and_verify_vbmeta) or 0..8 (avb_slot_verify).
