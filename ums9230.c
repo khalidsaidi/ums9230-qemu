@@ -402,6 +402,10 @@ static void inject_vboot(void *opaque)
     W64(0x80380368ULL, 0xffffffffe0700000ULL);  /* vmm[+0x38] = base (match key vs entry.base) */
     W64(0x80380370ULL, 0x200000ULL);            /* vmm[+0x40] = total region size (must exceed entry size) */
     W64(0x80354378ULL, 0xffffffffe0380330ULL);  /* kernel aspace pointer (0x3930 vmm_find_region reads it) */
+    /* aspace (VA 0xffffffffe0380330 -> PA 0x80380330) arch_aspace@0x58: tt_phys@0x58, tt_virt@0x60.
+     * Point them at the TTBR1 translation table so arch_mmu_map writes the live page tables. */
+    W64(0x80380388ULL, 0x80356000ULL);              /* arch_aspace.tt_phys = TTBR1 PA */
+    W64(0x80380390ULL, 0xffffffffe0356000ULL);      /* arch_aspace.tt_virt = TTBR1 VA */
     W64(0x80380378ULL, 0xffffffffe0380378ULL);  /* head.prev = head */
     W64(0x80380380ULL, 0xffffffffe060f000ULL);  /* head.next = entry */
     W64(0x8060f000ULL, 0xffffffffe0380378ULL);  /* entry.prev = head */
