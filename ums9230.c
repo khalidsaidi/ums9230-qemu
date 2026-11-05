@@ -340,9 +340,11 @@ static void inject_vboot(void *opaque)
         W64(h + 0x38 + 127*8, free_va);        /* free_lists[127] = free chunk */
         W64(h + 0x438 + 3*8, 0x1);             /* free_list_bits[3] bit0 = bucket 127 */
     }
-    W64(0x800b82c0ULL, 0xffffffffe0075a98ULL); /* avb_ops[+0x48] read_is_device_unlocked -> return-0 stub */
+    W64(0x800b82c0ULL, 0xffffffffe006f354ULL); /* avb_ops[+0x48] read_is_device_unlocked = REAL fn (0x6f354) */
     W64(0x800b8298ULL, 0x0ULL);                /* avb_ops[+0x20] get_preloaded_partition = NULL (libavb skips) */
     W64(0x800b82d0ULL, 0xffffffffe0075a98ULL); /* avb_ops[+0x58] get_size_of_partition -> return-0 stub */
+    W64(0x803548d0ULL, 0xffffffffe060d000ULL); /* g_avbUserData base (read_is_device_unlocked's user_data) */
+    W64(0x8060d048ULL, 0x0ULL);                /* vb_unlock_status = 0 (locked) */
 
     /* map the rodata page holding the "AVB0" magic (VA 0xffffffffe00a5d78 -> PA 0x800a5d78)
      * via the level-3 table at 0x80381000, entry (0xa5d78>>12)=0xa5. */
