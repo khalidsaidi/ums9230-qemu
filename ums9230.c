@@ -398,7 +398,7 @@ static void inject_vboot(void *opaque)
     W64(0x8060f000ULL, 0xffffffffe0380378ULL);  /* entry.prev = head */
     W64(0x8060f008ULL, 0xffffffffe0380378ULL);  /* entry.next = head */
     W64(0x8060f034ULL, 0x100000ULL);            /* entry.size = vbmeta size */
-    W64(0x8060f038ULL, 0x0ULL);                 /* entry.offset = 0 */
+    W64(0x8060f038ULL, 0x80700000ULL);          /* entry.offset = physical vbmeta addr */
     W64(0x8060f040ULL, 0xffffffffe0700000ULL);  /* entry.base = vbmeta VA */
 
     /* drive avb_slot_verify (0x713f8) with the input struct */
