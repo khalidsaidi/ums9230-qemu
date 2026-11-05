@@ -312,6 +312,9 @@ static void inject_vboot(void *opaque)
     W64(0x8060d140ULL, 0x0ULL);                /* entry1[0x18] = flags */
     W64(0x8060d158ULL, 0x0ULL);                /* entry2 size = 0 (end) */
     W64(0x803546a0ULL, 0xffffffffe060d100ULL); /* head -> entry0 (VA) */
+    /* "avb heap" size global ([0x354610] -> VA 0xffffffffe03739b0) = 0 by default; set to RAM size */
+    W64(0x803739b0ULL, 0x20000000ULL);         /* heap size 512MB so alloc lands in mapped RAM */
+    W64(0x80356ff8ULL, 0x6000009fe00649ULL);   /* L2[0x1ff] = avb-heap VA (0xfffffffffffff000) -> PA 0x9fe00000, AP=1 RW */
 
     /* map the rodata page holding the "AVB0" magic (VA 0xffffffffe00a5d78 -> PA 0x800a5d78)
      * via the level-3 table at 0x80381000, entry (0xa5d78>>12)=0xa5. */
@@ -404,12 +407,13 @@ static void inject_vboot(void *opaque)
 static void dump_regs(void *opaque)
 {
     ARMCPU *cpu = ARM_CPU(opaque);
-    uint64_t read_ops = 0, ops_base = 0, bdev = 0, l2_0 = 0, l3_97 = 0;
+    uint64_t read_ops = 0, ops_base = 0, bdev = 0, l2_0 = 0, l2_ff = 0, l3_97 = 0;
     uint64_t rhead = 0, rbase = 0, rpa = 0, rsz = 0, avb_c = 0, avb_610 = 0, v1 = 0, v2 = 0;
     address_space_read(&address_space_memory, 0x803546f8, MEMTXATTRS_UNSPECIFIED, &read_ops, 8);
     address_space_read(&address_space_memory, 0x80354780, MEMTXATTRS_UNSPECIFIED, &ops_base, 8);
     address_space_read(&address_space_memory, 0x8035f100, MEMTXATTRS_UNSPECIFIED, &bdev, 8);
     address_space_read(&address_space_memory, 0x80356000, MEMTXATTRS_UNSPECIFIED, &l2_0, 8);
+    address_space_read(&address_space_memory, 0x80356ff8, MEMTXATTRS_UNSPECIFIED, &l2_ff, 8);
     address_space_read(&address_space_memory, 0x803814b8, MEMTXATTRS_UNSPECIFIED, &l3_97, 8);
     address_space_read(&address_space_memory, 0x803546a0, MEMTXATTRS_UNSPECIFIED, &rhead, 8);
     if (rhead >= 0xffffffffe0000000ULL && rhead < 0xfffffffff0000000ULL) {
@@ -427,13 +431,13 @@ static void dump_regs(void *opaque)
         address_space_read(&address_space_memory, pa1, MEMTXATTRS_UNSPECIFIED, &v1, 8);
         address_space_read(&address_space_memory, pa2, MEMTXATTRS_UNSPECIFIED, &v2, 8);
     }
-    fprintf(stderr, "[DBG] PC=0x%lx X0=0x%lx ESR=0x%lx ELR=0x%lx FAR=0x%lx rbase=0x%lx rpa=0x%lx rsz=0x%lx v1=0x%lx v2=0x%lx\n",
+    fprintf(stderr, "[DBG] PC=0x%lx X0=0x%lx ESR=0x%lx ELR=0x%lx FAR=0x%lx L2ff=0x%lx avb_c=0x%lx avb_610=0x%lx v1=0x%lx v2=0x%lx\n",
             (unsigned long)cpu->env.pc,
             (unsigned long)cpu->env.xregs[0],
             (unsigned long)cpu->env.cp15.esr_el[1],
             (unsigned long)cpu->env.elr_el[1],
             (unsigned long)cpu->env.cp15.far_el[1],
-            (unsigned long)rbase, (unsigned long)rpa, (unsigned long)rsz, (unsigned long)v1, (unsigned long)v2);
+            (unsigned long)l2_ff, (unsigned long)avb_c, (unsigned long)avb_610, (unsigned long)v1, (unsigned long)v2);
 }
 
 static void ums9230_set_el(void *opaque)
