@@ -423,13 +423,14 @@ static void inject_vboot(void *opaque)
     /* populate read_ops mapped-buffer list so the real 0x74f8c->0x74980 read chain finds the vbmeta.
      * read_ops = [0x3546f8] = 0xffffffffe0380330 ; list head = read_ops+0x48 = 0xffffffffe0380378.
      * entry = {prev,next, size[0x34], offset[0x38], base[0x40] } at VA 0xffffffffe060f000. */
+    W64(0x80380368ULL, 0xffffffffe0700000ULL);  /* read_ops[+0x38] = base (match key vs entry.base) */
     W64(0x80380378ULL, 0xffffffffe0380378ULL);  /* head.prev = head */
     W64(0x80380380ULL, 0xffffffffe060f000ULL);  /* head.next = entry */
     W64(0x8060f000ULL, 0xffffffffe0380378ULL);  /* entry.prev = head */
     W64(0x8060f008ULL, 0xffffffffe0380378ULL);  /* entry.next = head */
-    W64(0x8060f034ULL, 0x100000ULL);            /* entry.size = vbmeta size */
-    W64(0x8060f038ULL, 0x80700000ULL);          /* entry.offset = physical vbmeta addr */
-    W64(0x8060f040ULL, 0xffffffffe0700000ULL);  /* entry.base = vbmeta VA */
+    W64(0x8060f034ULL, 0x0ULL);                 /* entry.flags = 0 */
+    W64(0x8060f038ULL, 0xffffffffe0700000ULL);  /* entry.base = vbmeta VA */
+    W64(0x8060f040ULL, 0x100000ULL);            /* entry.size = vbmeta size */
 
     /* drive avb_slot_verify (0x713f8) with the input struct */
     cpu->env.pstate = 0x3C5;            /* EL1h + DAIF masked */
