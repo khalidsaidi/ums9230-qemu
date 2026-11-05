@@ -384,9 +384,20 @@ static void inject_vboot(void *opaque)
      * set it to 0x02000000 so bswap32 -> 2 -> version != 1 -> 3. */
     /* W64(0x80700004ULL, 0x02000000ULL);  // ENABLE for -11 (returns 3). Comment out to run the full hash+RSA path (returns 0). */
 
-    /* set up the avb_slot_verify (0x713f8) input struct: [x0+8]=offset, [x0+0xc]=size */
-    W64(0x8060d000ULL + 8, 0x1000ULL);      /* offset (non-zero to pass the cbz) */
+    /* set up the avb_slot_verify (0x713f8) input struct: [x0+8]=physical vbmeta addr, [x0+0xc]=size */
+    W64(0x8060d000ULL + 8, 0x80700000ULL);  /* physical vbmeta addr (SL8541E process_vboot_verify_smc [a1+8]) */
     W64(0x8060d000ULL + 0xc, 0x100000ULL);  /* size (full vbmeta) */
+
+    /* populate read_ops mapped-buffer list so the real 0x74f8c->0x74980 read chain finds the vbmeta.
+     * read_ops = [0x3546f8] = 0xffffffffe0380330 ; list head = read_ops+0x48 = 0xffffffffe0380378.
+     * entry = {prev,next, size[0x34], offset[0x38], base[0x40] } at VA 0xffffffffe060f000. */
+    W64(0x80380378ULL, 0xffffffffe0380378ULL);  /* head.prev = head */
+    W64(0x80380380ULL, 0xffffffffe060f000ULL);  /* head.next = entry */
+    W64(0x8060f000ULL, 0xffffffffe0380378ULL);  /* entry.prev = head */
+    W64(0x8060f008ULL, 0xffffffffe0380378ULL);  /* entry.next = head */
+    W64(0x8060f034ULL, 0x100000ULL);            /* entry.size = vbmeta size */
+    W64(0x8060f038ULL, 0x0ULL);                 /* entry.offset = 0 */
+    W64(0x8060f040ULL, 0xffffffffe0700000ULL);  /* entry.base = vbmeta VA */
 
     /* drive avb_slot_verify (0x713f8) with the input struct */
     cpu->env.pstate = 0x3C5;            /* EL1h + DAIF masked */
