@@ -302,6 +302,25 @@ static void inject_vboot(void *opaque)
     W64(0x803814c0ULL, 0x8009864bULL);        /* L3[0x98] = vbmeta buffer 2nd page (VA 0xffffffffe0098000 -> PA 0x80098000), AF=1 AP=1 RW */
     W64(0x803812f0ULL, 0x8035e64bULL);        /* L3[0x5e] = stack page (VA 0xffffffffe035e000 -> PA 0x8035e000), AF=1 AP=1 RW */
     W64(0x803813f8ULL, 0x8007f64bULL);        /* L3[0x7f] = is_device_unlocked global page (VA 0xffffffffe007f000), RW */
+    /* pmm arena list (fixes AVB_SLOT_VERIFY_RESULT_ERROR_OOM=1).  Payload arena layout:
+     * flags@0x18, base@0x20, size@0x28, free_count@0x30, page_array@0x38 (vm_page_t=0x18 B, node@0, flags@0x10). */
+    W64(0x800b8170ULL, 0xffffffffe00b8180ULL);  /* head.prev = arena */
+    W64(0x800b8178ULL, 0xffffffffe00b8180ULL);  /* head.next = arena */
+    W64(0x800b8180ULL, 0xffffffffe00b8170ULL);  /* arena.prev = head */
+    W64(0x800b8188ULL, 0xffffffffe00b8170ULL);  /* arena.next = head */
+    W64(0x800b8198ULL, 0x1ULL);                 /* arena.flags = FREE */
+    W64(0x800b81a0ULL, 0x8034c000ULL);          /* arena.base (PA) */
+    W64(0x800b81a8ULL, 0xb4000ULL);             /* arena.size (720KB = 180 pages) */
+    W64(0x800b81b0ULL, 0xb4ULL);                /* arena.free_count = 180 */
+    W64(0x800b81b8ULL, 0xffffffffe03fc000ULL);  /* arena.page_array (VA) */
+    /* link free pages into a circular doubly-linked list (node.next/node.prev = VAs) */
+    for (int pi = 0; pi < 0xb4; pi++) {
+        uint64_t nxt = 0xffffffffe03fc000ULL + (uint64_t)((pi + 1) % 0xb4) * 0x18;
+        uint64_t prv = 0xffffffffe03fc000ULL + (uint64_t)((pi - 1 + 0xb4) % 0xb4) * 0x18;
+        W64(0x803fc000ULL + (uint64_t)pi * 0x18 + 0x00, nxt);
+        W64(0x803fc000ULL + (uint64_t)pi * 0x18 + 0x08, prv);
+        W64(0x803fc000ULL + (uint64_t)pi * 0x18 + 0x10, 0);  /* flags = free */
+    }
     /* mmu_initial_mappings for paddr_to_kvaddr (0x745f0): entry {phys, virt, size, flags, name} (0x28 B) */
     W64(0x8060d100ULL, 0x80000000ULL);         /* entry0[0] = phys (RAM) */
     W64(0x8060d108ULL, 0xffffffffe0000000ULL); /* entry0[8] = virt */
@@ -485,6 +504,14 @@ static void dump_regs(void *opaque)
     address_space_read(&address_space_memory, 0x81000080ULL, MEMTXATTRS_UNSPECIFIED, &fc2_size, 8);
     uint64_t rfp = 0, vsz = 0, avb0 = 0, l2_40 = 0, l2_41 = 0, stk[6] = {0};
     uint64_t gud = 0, unlock = 0;
+    uint64_t arena_next = 0, arena_flags = 0, arena_base = 0, arena_size = 0, arena_bm = 0;
+    address_space_read(&address_space_memory, 0x800b8178ULL, MEMTXATTRS_UNSPECIFIED, &arena_next, 8);  /* arena list head->next */
+    if (arena_next > 0x80000000ULL && arena_next < 0xc0000000ULL) {
+        address_space_read(&address_space_memory, arena_next + 0x18ULL, MEMTXATTRS_UNSPECIFIED, &arena_flags, 4);
+        address_space_read(&address_space_memory, arena_next + 0x20ULL, MEMTXATTRS_UNSPECIFIED, &arena_base, 8);
+        address_space_read(&address_space_memory, arena_next + 0x28ULL, MEMTXATTRS_UNSPECIFIED, &arena_size, 8);
+        address_space_read(&address_space_memory, arena_next + 0x38ULL, MEMTXATTRS_UNSPECIFIED, &arena_bm, 8);
+    }
     address_space_read(&address_space_memory, 0x803548d0ULL, MEMTXATTRS_UNSPECIFIED, &gud, 8);  /* g_avbUserData ptr */
     if (gud > 0x80000000ULL && gud < 0xc0000000ULL)
         address_space_read(&address_space_memory, gud + 0x48ULL, MEMTXATTRS_UNSPECIFIED, &unlock, 4);  /* vb_unlock_status */
@@ -497,11 +524,14 @@ static void dump_regs(void *opaque)
         uint64_t spa = sx29 - 8 + si*8;   /* stack around fault x29 (from exception frame) */
         address_space_read(&address_space_memory, spa, MEMTXATTRS_UNSPECIFIED, &stk[si], 8);
     }
+    if (cpu->env.pc == 0xffffffffe0071574ULL)
+        fprintf(stderr, "[VERIFY] avb_slot_verify returned X0=0x%lx (0=OK,1=OOM,2=IO,3=VERIFICATION,4=ROLLBACK,5=KEY_REJECTED)\n",
+                (unsigned long)cpu->env.xregs[0]);
     if (cpu->env.pc == 0xffffffffe0071900ULL || cpu->env.pc == 0xffffffffe0071930ULL)
         fprintf(stderr, "[RESULT] 0x713f8 returned X0=0x%lx X19=0x%lx (0=valid, non-zero=invalid)\n",
                 (unsigned long)cpu->env.xregs[0], (unsigned long)cpu->env.xregs[19]);
     fprintf(stderr, "[DBG] PC=0x%lx X0=0x%lx X1=0x%lx X19=0x%lx ELR=0x%lx FAR=0x%lx sx30=0x%lx sx29=0x%lx sx2=0x%lx\n"
-            "      hsz=0x%lx hrem=0x%lx fl=0x%lx/0x%lx ul=0x%lx/0x%lx fc={0x%lx,0x%lx,0x%lx} fc2={0x%lx,0x%lx,0x%lx} rfp=0x%lx vsz=0x%lx avb0=0x%lx l2_40=0x%lx l2_41=0x%lx gud=0x%lx unlock=0x%lx stk=0x%lx/0x%lx/0x%lx/0x%lx/0x%lx/0x%lx\n",
+            "      hsz=0x%lx hrem=0x%lx fl=0x%lx/0x%lx ul=0x%lx/0x%lx fc={0x%lx,0x%lx,0x%lx} fc2={0x%lx,0x%lx,0x%lx} rfp=0x%lx vsz=0x%lx avb0=0x%lx l2_40=0x%lx l2_41=0x%lx gud=0x%lx unlock=0x%lx arena=0x%lx(flags=0x%lx base=0x%lx size=0x%lx bm=0x%lx) stk=0x%lx/0x%lx/0x%lx/0x%lx/0x%lx/0x%lx\n",
             (unsigned long)cpu->env.pc,
             (unsigned long)cpu->env.xregs[0],
             (unsigned long)cpu->env.xregs[1],
@@ -517,6 +547,8 @@ static void dump_regs(void *opaque)
             (unsigned long)rfp, (unsigned long)vsz, (unsigned long)avb0,
             (unsigned long)l2_40, (unsigned long)l2_41,
             (unsigned long)gud, (unsigned long)unlock,
+            (unsigned long)arena_next, (unsigned long)arena_flags,
+            (unsigned long)arena_base, (unsigned long)arena_size, (unsigned long)arena_bm,
             (unsigned long)stk[0], (unsigned long)stk[1], (unsigned long)stk[2],
             (unsigned long)stk[3], (unsigned long)stk[4], (unsigned long)stk[5]);
 }
