@@ -626,7 +626,7 @@ static void ums9230_init(MachineState *machine)
                     (unsigned long)machine->ram_size, (unsigned long)a, (unsigned long)b);
         }
         /* load the vbmeta image for the VBOOT_VERIFY_IMG test (VA 0xffffffffe0700000 -> PA 0x80700000) */
-        load_image_targphys_as("firmware/vbmeta-stock.img",
+        load_image_targphys_as("/mnt/c/Users/khali/spd-work/kit/vbmeta-stock.img",
                                0x80700000ULL, 0x100000, &address_space_memory, NULL);
         {
             QEMUTimer *t = timer_new_ns(QEMU_CLOCK_VIRTUAL, write_heap, cpuobj);
