@@ -412,6 +412,8 @@ static void inject_vboot(void *opaque)
     /* set up the avb_slot_verify (0x713f8) input struct: [x0+8]=physical vbmeta addr, [x0+0xc]=size */
     W64(0x8060d000ULL + 8, 0x80700000ULL);  /* physical vbmeta addr (SL8541E process_vboot_verify_smc [a1+8]) */
     W64(0x8060d000ULL + 0xc, 0x100000ULL);  /* size (full vbmeta) */
+    W64(0x8060d158ULL, 0xffffffffe0700000ULL); /* [user_data+0x158] = vbmeta_img_addr (read by 0x7464) */
+    W64(0x8060d160ULL, 0x100000ULL);         /* [user_data+0x160] = vbmeta_img_size */
     { uint64_t rb = 0; address_space_read(&address_space_memory, 0x8060d008ULL, MEMTXATTRS_UNSPECIFIED, &rb, 8);
       fprintf(stderr, "[DBG] input[+8]=0x%lx input[+0xc]=0x%lx\n", (unsigned long)rb, 0x100000UL); }
 
@@ -419,7 +421,7 @@ static void inject_vboot(void *opaque)
      * read_ops = [0x3546f8] = 0xffffffffe0380330 ; list head = read_ops+0x48 = 0xffffffffe0380378.
      * entry = {prev,next, size[0x34], offset[0x38], base[0x40] } at VA 0xffffffffe060f000. */
     W64(0x80380368ULL, 0xffffffffe0700000ULL);  /* vmm[+0x38] = base (match key vs entry.base) */
-    W64(0x80380370ULL, 0x200000ULL);            /* vmm[+0x40] = total region size (must exceed entry size) */
+    W64(0x80380370ULL, 0x400000ULL);            /* vmm[+0x40] = region size 4MB (3 reads need >1MB gap) */
     W64(0x80354378ULL, 0xffffffffe0380330ULL);  /* kernel aspace pointer (0x3930 vmm_find_region reads it) */
     /* aspace (VA 0xffffffffe0380330 -> PA 0x80380330) arch_aspace@0x58: tt_phys@0x58, tt_virt@0x60.
      * Point them at the TTBR1 translation table so arch_mmu_map writes the live page tables. */
@@ -449,7 +451,7 @@ static void inject_vboot(void *opaque)
     cpu->env.xregs[31] = 0xffffffffe035f000ULL; /* current SP (x31) */
     cpu->env.cp15.esr_el[1] = 0x15ULL << 26;      /* ESR: SMC exception class */
     cpu_set_pc(CPU(cpu), 0xffffffffe00713f8ULL); /* avb_slot_verify */
-    cpu_resume(CPU(cpu));                         /* wake the vCPU if it was halted in WFI */
+    cpu_interrupt(CPU(cpu), CPU_INTERRUPT_EXITTB); /* flush TCG + re-enter at new PC */
     fprintf(stderr, "[DBG] injected avb_slot_verify (0x713f8)\n");
     #undef W64
 }
@@ -474,8 +476,8 @@ static void dump_regs(void *opaque)
     address_space_read(&address_space_memory, 0x8035ef40ULL, MEMTXATTRS_UNSPECIFIED, &rfp_frm2, 8);
     uint64_t e30 = 0, e38 = 0, e40 = 0, o80 = 0, o98 = 0;
     address_space_read(&address_space_memory, 0x81000030ULL, MEMTXATTRS_UNSPECIFIED, &e30, 8);
-    address_space_read(&address_space_memory, 0x81000038ULL, MEMTXATTRS_UNSPECIFIED, &e38, 8);
-    address_space_read(&address_space_memory, 0x81000040ULL, MEMTXATTRS_UNSPECIFIED, &e40, 8);
+    address_space_read(&address_space_memory, 0x81000050ULL, MEMTXATTRS_UNSPECIFIED, &e38, 8);   /* malloc entry +0x38 = allocated VA (entry data @ +0x18) */
+    address_space_read(&address_space_memory, 0x81000058ULL, MEMTXATTRS_UNSPECIFIED, &e40, 8);   /* malloc entry +0x40 = size */
     address_space_read(&address_space_memory, 0x8035efb0ULL, MEMTXATTRS_UNSPECIFIED, &o80, 8);  /* [x29+0x80] auth block mapped VA */
     address_space_read(&address_space_memory, 0x8035efc8ULL, MEMTXATTRS_UNSPECIFIED, &o98, 8);  /* [x29+0x98] vbmeta mapped VA */
     uint64_t rhead = 0, rbase = 0, rpa = 0, rsz = 0, avb_c = 0, avb_610 = 0, v1 = 0, v2 = 0;
