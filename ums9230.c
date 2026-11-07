@@ -547,6 +547,10 @@ static void dump_regs(void *opaque)
     if (cpu->env.pc == 0xffffffffe0071900ULL || cpu->env.pc == 0xffffffffe0071930ULL)
         fprintf(stderr, "[RESULT] 0x713f8 returned X0=0x%lx X19=0x%lx (0=valid, non-zero=invalid)\n",
                 (unsigned long)cpu->env.xregs[0], (unsigned long)cpu->env.xregs[19]);
+    if (cpu->env.pc == 0xffffffffe006e2e0ULL && (cpu->env.xregs[1] < 0x1000000ULL || cpu->env.xregs[1] == 0xffffffffe0800000ULL))
+        fprintf(stderr, "[AVBMC] x0=0x%lx x1=0x%lx x2=0x%lx x30=0x%lx\n",
+                (unsigned long)cpu->env.xregs[0], (unsigned long)cpu->env.xregs[1],
+                (unsigned long)cpu->env.xregs[2], (unsigned long)cpu->env.xregs[30]);
     if (cpu->env.pc == 0xffffffffe006fad8ULL || cpu->env.pc == 0xffffffffe007464ULL)
         fprintf(stderr, "[RFP] pc=0x%lx x0=0x%lx x1=0x%lx x2=0x%lx x3=0x%lx x4=0x%lx x5=0x%lx\n",
                 (unsigned long)cpu->env.pc, (unsigned long)cpu->env.xregs[0],
