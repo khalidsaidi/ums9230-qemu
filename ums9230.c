@@ -440,9 +440,9 @@ static void inject_vboot(void *opaque)
     W64(0x81000170ULL, 0xffffffffe0800000ULL); /* partition struct +0x158 = vbmeta_img_addr (allocated VA) */
     W64(0x81000250ULL, 0xffffffffe0800000ULL); /* partition struct @0xffffffffe10000f8 +0x158 */
     W64(0x810000b0ULL, 0xffffffffe0800000ULL); /* partition @0x1000018 +0x98 = img_addr */
-    W64(0x810000b8ULL, 0x100000ULL);            /* partition @0x1000018 +0xa0 = img_size */
+    W64(0x810000b8ULL, 0x3d00ULL);             /* partition @0x1000018 +0xa0 = img_size (data size) */
     W64(0x81000190ULL, 0xffffffffe0800000ULL); /* partition @0x10000f8 +0x98 = img_addr */
-    W64(0x81000198ULL, 0x100000ULL);            /* partition @0x10000f8 +0xa0 = img_size */
+    W64(0x81000198ULL, 0x3d00ULL);             /* partition @0x10000f8 +0xa0 = img_size */
     W64(0x8060d160ULL, 0x100000ULL);         /* [user_data+0x160] = vbmeta_img_size */
     { uint64_t rb = 0; address_space_read(&address_space_memory, 0x8060d008ULL, MEMTXATTRS_UNSPECIFIED, &rb, 8);
       fprintf(stderr, "[DBG] input[+8]=0x%lx input[+0xc]=0x%lx\n", (unsigned long)rb, 0x100000UL); }
