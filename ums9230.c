@@ -575,12 +575,26 @@ static void dump_regs(void *opaque)
         fprintf(stderr, "[AVBMC] x0=0x%lx x1=0x%lx x2=0x%lx x30=0x%lx\n",
                 (unsigned long)cpu->env.xregs[0], (unsigned long)cpu->env.xregs[1],
                 (unsigned long)cpu->env.xregs[2], (unsigned long)cpu->env.xregs[30]);
+    { uint64_t hp=0, hn=0, fcn=0, fcs=0;
+      address_space_read(&address_space_memory, 0x80375a88ULL, MEMTXATTRS_UNSPECIFIED, &hp, 8);
+      address_space_read(&address_space_memory, 0x80375a90ULL, MEMTXATTRS_UNSPECIFIED, &hn, 8);
+      address_space_read(&address_space_memory, 0x81000008ULL, MEMTXATTRS_UNSPECIFIED, &fcn, 8);
+      address_space_read(&address_space_memory, 0x81000010ULL, MEMTXATTRS_UNSPECIFIED, &fcs, 8);
+      if (hn == 0 || hn == hp)
+        fprintf(stderr, "[HEAP] head.prev=0x%lx head.next=0x%lx chunk.next=0x%lx chunk.size=0x%lx\n",
+                (unsigned long)hp, (unsigned long)hn, (unsigned long)fcn, (unsigned long)fcs);
+    }
     if (cpu->env.pc == 0xffffffffe006fad8ULL || cpu->env.pc == 0xffffffffe007464ULL)
         fprintf(stderr, "[RFP] pc=0x%lx x0=0x%lx x1=0x%lx x2=0x%lx x3=0x%lx x4=0x%lx x5=0x%lx\n",
                 (unsigned long)cpu->env.pc, (unsigned long)cpu->env.xregs[0],
                 (unsigned long)cpu->env.xregs[1], (unsigned long)cpu->env.xregs[2],
                 (unsigned long)cpu->env.xregs[3], (unsigned long)cpu->env.xregs[4],
                 (unsigned long)cpu->env.xregs[5]);
+    if (cpu->env.pc == 0xffffffffe006ee30ULL || cpu->env.pc == 0xffffffffe0071574ULL ||
+        cpu->env.pc == 0xffffffffe0071900ULL || cpu->env.pc == 0xffffffffe0071930ULL)
+        fprintf(stderr, "[VRES] pc=0x%lx w0=0x%lx w24=0x%lx w25=0x%lx\n",
+                (unsigned long)cpu->env.pc, (unsigned long)(uint32_t)cpu->env.xregs[0],
+                (unsigned long)(uint32_t)cpu->env.xregs[24], (unsigned long)(uint32_t)cpu->env.xregs[25]);
     if (cpu->env.pc == 0xffffffffe0078248ULL || cpu->env.pc == 0xffffffffe0073e04ULL ||
         cpu->env.pc == 0xffffffffe0073b20ULL || cpu->env.pc == 0xffffffffe0071560ULL)
         fprintf(stderr, "[OOM] pc=0x%lx x0=0x%lx x1=0x%lx x19=0x%lx x22=0x%lx\n",
