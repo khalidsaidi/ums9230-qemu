@@ -473,7 +473,7 @@ static void dump_regs(void *opaque)
     address_space_read(&address_space_memory, 0x8035ef28ULL, MEMTXATTRS_UNSPECIFIED, &sx29, 8);   /* x29 */
     address_space_read(&address_space_memory, 0x8035ef30ULL, MEMTXATTRS_UNSPECIFIED, &sx30, 8);   /* x30 */
     uint64_t rfp_ret = 0, rfp_frm = 0, rfp_frm2 = 0;
-    address_space_read(&address_space_memory, 0x8035ef28ULL, MEMTXATTRS_UNSPECIFIED, &rfp_ret, 8);  /* avb_memcpy saved x30 = read_from_partition return */
+    address_space_read(&address_space_memory, 0x8035ee78ULL, MEMTXATTRS_UNSPECIFIED, &rfp_ret, 8);  /* avb_memcpy saved x30 = caller (x29=0xffffffffe035ee70) */
     address_space_read(&address_space_memory, 0x8035ef30ULL, MEMTXATTRS_UNSPECIFIED, &rfp_frm, 8);   /* avb_memcpy saved x29 */
     address_space_read(&address_space_memory, 0x8035ef40ULL, MEMTXATTRS_UNSPECIFIED, &rfp_frm2, 8);
     uint64_t e30 = 0, e38 = 0, e40 = 0, o80 = 0, o98 = 0;
