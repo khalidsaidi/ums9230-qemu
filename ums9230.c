@@ -590,6 +590,13 @@ static void dump_regs(void *opaque)
                 (unsigned long)cpu->env.xregs[1], (unsigned long)cpu->env.xregs[2],
                 (unsigned long)cpu->env.xregs[3], (unsigned long)cpu->env.xregs[4],
                 (unsigned long)cpu->env.xregs[5]);
+    if (cpu->env.pc == 0xffffffffe006acc0ULL || cpu->env.pc == 0xffffffffe006ad70ULL)
+        fprintf(stderr, "[RSA] pc=0x%lx x0=0x%lx x1=0x%lx x2=0x%lx x3=0x%lx x4=0x%lx x5=0x%lx x6=0x%lx x7=0x%lx\n",
+                (unsigned long)cpu->env.pc, (unsigned long)cpu->env.xregs[0],
+                (unsigned long)cpu->env.xregs[1], (unsigned long)cpu->env.xregs[2],
+                (unsigned long)cpu->env.xregs[3], (unsigned long)cpu->env.xregs[4],
+                (unsigned long)cpu->env.xregs[5], (unsigned long)cpu->env.xregs[6],
+                (unsigned long)cpu->env.xregs[7]);
     if (cpu->env.pc == 0xffffffffe006ee30ULL || cpu->env.pc == 0xffffffffe0071574ULL ||
         cpu->env.pc == 0xffffffffe0071900ULL || cpu->env.pc == 0xffffffffe0071930ULL ||
         cpu->env.pc == 0xffffffffe007158cULL || cpu->env.pc == 0xffffffffe00719a0ULL ||
