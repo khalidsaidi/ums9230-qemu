@@ -481,6 +481,7 @@ static void inject_vboot(void *opaque)
     cpu->env.xregs[31] = 0xffffffffe035f000ULL; /* current SP (x31) */
     cpu->env.cp15.esr_el[1] = 0x15ULL << 26;      /* ESR: SMC exception class */
     cpu_set_pc(CPU(cpu), 0xffffffffe00713f8ULL); /* avb_slot_verify */
+    cpu_resume(CPU(cpu));                          /* wake if halted in WFI */
     cpu_interrupt(CPU(cpu), CPU_INTERRUPT_EXITTB); /* flush TCG + re-enter at new PC */
     fprintf(stderr, "[DBG] injected avb_slot_verify (0x713f8)\n");
     #undef W64
