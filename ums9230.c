@@ -402,6 +402,19 @@ static void inject_vboot(void *opaque)
         W64(0x8060c000ULL + 0x50, gg[4]);
         W64(0x8060c000ULL + 0x58, gg[5]);
         fprintf(stderr, "[DBG] ops table populated at 0x%lx\n", (unsigned long)ops);
+        /* 0xffffffffe060c000 is actually the AvbVBMetaImageHeader copy (0x6ed70 reads
+         * +0xc..+0x58 as auth/aux size, algorithm, hash/sig/key offsets+sizes).
+         * Copy the real vbmeta header (PA 0x80700000) in so algorithm_type (+0x1c)
+         * and public_key_metadata_size (+0x58) are non-zero and the verify proceeds. */
+        for (int i = 0; i < 0x80; i += 8) {
+            uint64_t h = 0;
+            address_space_read(&address_space_memory, 0x80700000ULL + i, MEMTXATTRS_UNSPECIFIED, &h, 8);
+            address_space_write(&address_space_memory, 0x8060c000ULL + i, MEMTXATTRS_UNSPECIFIED, &h, 8);
+        }
+        { uint64_t a = 0, m = 0;
+          address_space_read(&address_space_memory, 0x8060c01cULL, MEMTXATTRS_UNSPECIFIED, &a, 8);
+          address_space_read(&address_space_memory, 0x8060c058ULL, MEMTXATTRS_UNSPECIFIED, &m, 8);
+          fprintf(stderr, "[DBG] hdr algorithm=0x%lx metadata_size=0x%lx\n", (unsigned long)a, (unsigned long)m); }
     }
 
     /* force version_major != 1 so avb_vbmeta_image_verify returns 3 (ERROR_VERIFICATION -> -11).
