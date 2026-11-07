@@ -340,7 +340,7 @@ static void inject_vboot(void *opaque)
     W64(0x800b8298ULL, 0x0ULL);                /* avb_ops[+0x20] get_preloaded_partition = NULL (libavb skips) */
     W64(0x800b82d0ULL, 0xffffffffe0075a98ULL); /* avb_ops[+0x58] get_size_of_partition -> return-0 stub */
     W64(0x803548d0ULL, 0xffffffffe060d000ULL); /* g_avbUserData base (read_is_device_unlocked's user_data) */
-    W64(0x8060d048ULL, 0x0ULL);                /* vb_unlock_status = 0 (locked) */
+    W64(0x8060d048ULL, 0x1ULL);                /* vb_unlock_status = 1 (unlocked, u-boot default) */
 
     /* map the rodata page holding the "AVB0" magic (VA 0xffffffffe00a5d78 -> PA 0x800a5d78)
      * via the level-3 table at 0x80381000, entry (0xa5d78>>12)=0xa5. */
@@ -456,11 +456,12 @@ static void dump_regs(void *opaque)
 {
     ARMCPU *cpu = ARM_CPU(opaque);
     uint64_t read_ops = 0, ops_base = 0, bdev = 0, l2_0 = 0, l2_ff = 0, l3_97 = 0;
-    uint64_t sx0 = 0, sx1 = 0, sx2 = 0, sx18 = 0, sx19 = 0, sx29 = 0, sx30 = 0;
+    uint64_t sx0 = 0, sx1 = 0, sx2 = 0, sx9 = 0, sx18 = 0, sx19 = 0, sx29 = 0, sx30 = 0;
     /* exception vector (0x1200) saves regs to [sp_orig-0x110 .. ]; sp_orig = 0xffffffffe035ef50 (frame after stp #-0xb0) */
     address_space_read(&address_space_memory, 0x8035ee40ULL, MEMTXATTRS_UNSPECIFIED, &sx0, 8);    /* x0 */
     address_space_read(&address_space_memory, 0x8035ee48ULL, MEMTXATTRS_UNSPECIFIED, &sx1, 8);    /* x1 */
     address_space_read(&address_space_memory, 0x8035ee50ULL, MEMTXATTRS_UNSPECIFIED, &sx2, 8);    /* x2 */
+    address_space_read(&address_space_memory, 0x8035ee88ULL, MEMTXATTRS_UNSPECIFIED, &sx9, 8);    /* x9 (avb_memcpy caller return) */
     address_space_read(&address_space_memory, 0x8035eed0ULL, MEMTXATTRS_UNSPECIFIED, &sx18, 8);   /* x18 (elr) */
     address_space_read(&address_space_memory, 0x8035eed8ULL, MEMTXATTRS_UNSPECIFIED, &sx19, 8);   /* x19 */
     address_space_read(&address_space_memory, 0x8035ef28ULL, MEMTXATTRS_UNSPECIFIED, &sx29, 8);   /* x29 */
@@ -530,15 +531,16 @@ static void dump_regs(void *opaque)
     if (cpu->env.pc == 0xffffffffe0071900ULL || cpu->env.pc == 0xffffffffe0071930ULL)
         fprintf(stderr, "[RESULT] 0x713f8 returned X0=0x%lx X19=0x%lx (0=valid, non-zero=invalid)\n",
                 (unsigned long)cpu->env.xregs[0], (unsigned long)cpu->env.xregs[19]);
-    fprintf(stderr, "[DBG] PC=0x%lx X0=0x%lx X1=0x%lx X19=0x%lx ELR=0x%lx FAR=0x%lx sx30=0x%lx sx29=0x%lx sx2=0x%lx\n"
+    fprintf(stderr, "[DBG] PC=0x%lx X0=0x%lx X1=0x%lx X9=0x%lx X19=0x%lx ELR=0x%lx FAR=0x%lx sx30=0x%lx sx29=0x%lx sx2=0x%lx sx9=0x%lx\n"
             "      hsz=0x%lx hrem=0x%lx fl=0x%lx/0x%lx ul=0x%lx/0x%lx fc={0x%lx,0x%lx,0x%lx} fc2={0x%lx,0x%lx,0x%lx} rfp=0x%lx vsz=0x%lx avb0=0x%lx l2_40=0x%lx l2_41=0x%lx gud=0x%lx unlock=0x%lx arena=0x%lx(flags=0x%lx base=0x%lx size=0x%lx bm=0x%lx) stk=0x%lx/0x%lx/0x%lx/0x%lx/0x%lx/0x%lx\n",
             (unsigned long)cpu->env.pc,
             (unsigned long)cpu->env.xregs[0],
             (unsigned long)cpu->env.xregs[1],
+            (unsigned long)cpu->env.xregs[9],
             (unsigned long)cpu->env.xregs[19],
             (unsigned long)cpu->env.elr_el[1],
             (unsigned long)cpu->env.cp15.far_el[1],
-            (unsigned long)sx30, (unsigned long)sx29, (unsigned long)sx2,
+            (unsigned long)sx30, (unsigned long)sx29, (unsigned long)sx2, (unsigned long)sx9,
             (unsigned long)heap_sz, (unsigned long)heap_rem,
             (unsigned long)fl_prev, (unsigned long)fl_next,
             (unsigned long)ul_prev, (unsigned long)ul_next,
