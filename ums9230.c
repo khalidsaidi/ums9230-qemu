@@ -413,6 +413,8 @@ static void inject_vboot(void *opaque)
     W64(0x8060d000ULL + 8, 0x80700000ULL);  /* physical vbmeta addr (SL8541E process_vboot_verify_smc [a1+8]) */
     W64(0x8060d000ULL + 0xc, 0x100000ULL);  /* size (full vbmeta) */
     W64(0x8060d158ULL, 0xffffffffe0700000ULL); /* [user_data+0x158] = vbmeta_img_addr (read by 0x7464) */
+    W64(0x81000170ULL, 0xffffffffe0800000ULL); /* partition struct +0x158 = vbmeta_img_addr (allocated VA) */
+    W64(0x81000250ULL, 0xffffffffe0800000ULL); /* partition struct @0xffffffffe10000f8 +0x158 */
     W64(0x8060d160ULL, 0x100000ULL);         /* [user_data+0x160] = vbmeta_img_size */
     { uint64_t rb = 0; address_space_read(&address_space_memory, 0x8060d008ULL, MEMTXATTRS_UNSPECIFIED, &rb, 8);
       fprintf(stderr, "[DBG] input[+8]=0x%lx input[+0xc]=0x%lx\n", (unsigned long)rb, 0x100000UL); }
