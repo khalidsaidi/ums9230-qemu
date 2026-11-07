@@ -590,7 +590,8 @@ static void dump_regs(void *opaque)
                 (unsigned long)cpu->env.xregs[1], (unsigned long)cpu->env.xregs[2],
                 (unsigned long)cpu->env.xregs[3], (unsigned long)cpu->env.xregs[4],
                 (unsigned long)cpu->env.xregs[5]);
-    if (cpu->env.pc == 0xffffffffe006acc0ULL || cpu->env.pc == 0xffffffffe006ad70ULL)
+    if (cpu->env.pc == 0xffffffffe006acc0ULL || cpu->env.pc == 0xffffffffe006ad70ULL ||
+        cpu->env.pc == 0xffffffffe0071810ULL || cpu->env.pc == 0xffffffffe0071814ULL)
         fprintf(stderr, "[RSA] pc=0x%lx x0=0x%lx x1=0x%lx x2=0x%lx x3=0x%lx x4=0x%lx x5=0x%lx x6=0x%lx x7=0x%lx\n",
                 (unsigned long)cpu->env.pc, (unsigned long)cpu->env.xregs[0],
                 (unsigned long)cpu->env.xregs[1], (unsigned long)cpu->env.xregs[2],
@@ -747,6 +748,10 @@ static void ums9230_init(MachineState *machine)
         {
             QEMUTimer *t = timer_new_ns(QEMU_CLOCK_VIRTUAL, dump_regs, cpuobj);
             timer_mod(t, qemu_clock_get_ns(QEMU_CLOCK_VIRTUAL) + 2001500ULL);
+        }
+        for (int i = 1; i <= 40; i++) { /* sample every 10us from 2.1ms to 2.5ms to catch the RSA */
+            QEMUTimer *t = timer_new_ns(QEMU_CLOCK_VIRTUAL, dump_regs, cpuobj);
+            timer_mod(t, qemu_clock_get_ns(QEMU_CLOCK_VIRTUAL) + 2100000ULL + (uint64_t)i * 10000ULL);
         }
         {
             QEMUTimer *t = timer_new_ns(QEMU_CLOCK_VIRTUAL, dump_regs, cpuobj);
