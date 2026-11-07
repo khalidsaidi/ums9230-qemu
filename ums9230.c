@@ -439,6 +439,10 @@ static void inject_vboot(void *opaque)
     W64(0x8060d158ULL, 0xffffffffe0700000ULL); /* [user_data+0x158] = vbmeta_img_addr (read by 0x7464) */
     W64(0x81000170ULL, 0xffffffffe0800000ULL); /* partition struct +0x158 = vbmeta_img_addr (allocated VA) */
     W64(0x81000250ULL, 0xffffffffe0800000ULL); /* partition struct @0xffffffffe10000f8 +0x158 */
+    W64(0x810000b0ULL, 0xffffffffe0800000ULL); /* partition @0x1000018 +0x98 = img_addr */
+    W64(0x810000b8ULL, 0x100000ULL);            /* partition @0x1000018 +0xa0 = img_size */
+    W64(0x81000190ULL, 0xffffffffe0800000ULL); /* partition @0x10000f8 +0x98 = img_addr */
+    W64(0x81000198ULL, 0x100000ULL);            /* partition @0x10000f8 +0xa0 = img_size */
     W64(0x8060d160ULL, 0x100000ULL);         /* [user_data+0x160] = vbmeta_img_size */
     { uint64_t rb = 0; address_space_read(&address_space_memory, 0x8060d008ULL, MEMTXATTRS_UNSPECIFIED, &rb, 8);
       fprintf(stderr, "[DBG] input[+8]=0x%lx input[+0xc]=0x%lx\n", (unsigned long)rb, 0x100000UL); }
@@ -576,6 +580,7 @@ static void dump_regs(void *opaque)
                 (unsigned long)cpu->env.xregs[0], (unsigned long)cpu->env.xregs[1],
                 (unsigned long)cpu->env.xregs[2], (unsigned long)cpu->env.xregs[30]);
     { uint64_t hp=0, hn=0, fcn=0, fcs=0, p98=0, pa0=0, p158=0;
+      uint64_t hash=0, auth=0, sig=0, aux=0, vbmeta=0, keyd=0, keyl=0;
       address_space_read(&address_space_memory, 0x80375a88ULL, MEMTXATTRS_UNSPECIFIED, &hp, 8);
       address_space_read(&address_space_memory, 0x80375a90ULL, MEMTXATTRS_UNSPECIFIED, &hn, 8);
       address_space_read(&address_space_memory, 0x81000008ULL, MEMTXATTRS_UNSPECIFIED, &fcn, 8);
@@ -583,10 +588,20 @@ static void dump_regs(void *opaque)
       address_space_read(&address_space_memory, 0x81000098ULL, MEMTXATTRS_UNSPECIFIED, &p98, 8);
       address_space_read(&address_space_memory, 0x810000a0ULL, MEMTXATTRS_UNSPECIFIED, &pa0, 8);
       address_space_read(&address_space_memory, 0x81000158ULL, MEMTXATTRS_UNSPECIFIED, &p158, 8);
+      /* 0x713f8 stack frame (x29=0xffffffffe035ef50) descriptor-RSA inputs */
+      address_space_read(&address_space_memory, 0x8035efa8ULL, MEMTXATTRS_UNSPECIFIED, &hash, 8);
+      address_space_read(&address_space_memory, 0x8035efd0ULL, MEMTXATTRS_UNSPECIFIED, &auth, 8);
+      address_space_read(&address_space_memory, 0x8035efd8ULL, MEMTXATTRS_UNSPECIFIED, &sig, 8);
+      address_space_read(&address_space_memory, 0x8035efe0ULL, MEMTXATTRS_UNSPECIFIED, &aux, 8);
+      address_space_read(&address_space_memory, 0x8035efe8ULL, MEMTXATTRS_UNSPECIFIED, &vbmeta, 8);
+      address_space_read(&address_space_memory, 0x8035eff0ULL, MEMTXATTRS_UNSPECIFIED, &keyd, 8);
+      address_space_read(&address_space_memory, 0x8035eff8ULL, MEMTXATTRS_UNSPECIFIED, &keyl, 8);
       if (hn == 0 || hn == hp)
-        fprintf(stderr, "[HEAP] head.prev=0x%lx head.next=0x%lx chunk.next=0x%lx chunk.size=0x%lx part98=0x%lx partA0=0x%lx part158=0x%lx\n",
+        fprintf(stderr, "[HEAP] head=0x%lx/0x%lx chunk=0x%lx/0x%lx part98=0x%lx partA0=0x%lx part158=0x%lx | hash=0x%lx auth=0x%lx sig=0x%lx aux=0x%lx vbmeta=0x%lx keyd=0x%lx keyl=0x%lx\n",
                 (unsigned long)hp, (unsigned long)hn, (unsigned long)fcn, (unsigned long)fcs,
-                (unsigned long)p98, (unsigned long)pa0, (unsigned long)p158);
+                (unsigned long)p98, (unsigned long)pa0, (unsigned long)p158,
+                (unsigned long)hash, (unsigned long)auth, (unsigned long)sig, (unsigned long)aux,
+                (unsigned long)vbmeta, (unsigned long)keyd, (unsigned long)keyl);
     }
     if (cpu->env.pc == 0xffffffffe006fad8ULL || cpu->env.pc == 0xffffffffe007464ULL)
         fprintf(stderr, "[RFP] pc=0x%lx x0=0x%lx x1=0x%lx x2=0x%lx x3=0x%lx x4=0x%lx x5=0x%lx\n",
