@@ -553,6 +553,12 @@ static void dump_regs(void *opaque)
                 (unsigned long)cpu->env.xregs[1], (unsigned long)cpu->env.xregs[2],
                 (unsigned long)cpu->env.xregs[3], (unsigned long)cpu->env.xregs[4],
                 (unsigned long)cpu->env.xregs[5]);
+    if (cpu->env.pc == 0xffffffffe0078248ULL || cpu->env.pc == 0xffffffffe0073e04ULL ||
+        cpu->env.pc == 0xffffffffe0073b20ULL || cpu->env.pc == 0xffffffffe0071560ULL)
+        fprintf(stderr, "[OOM] pc=0x%lx x0=0x%lx x1=0x%lx x19=0x%lx x22=0x%lx\n",
+                (unsigned long)cpu->env.pc, (unsigned long)cpu->env.xregs[0],
+                (unsigned long)cpu->env.xregs[1], (unsigned long)cpu->env.xregs[19],
+                (unsigned long)cpu->env.xregs[22]);
     fprintf(stderr, "[DBG] PC=0x%lx X0=0x%lx X1=0x%lx X9=0x%lx X19=0x%lx ELR=0x%lx FAR=0x%lx sx30=0x%lx sx29=0x%lx sx2=0x%lx sx9=0x%lx rfp_ret=0x%lx rfp_frm=0x%lx e38=0x%lx e40=0x%lx o80=0x%lx o98=0x%lx\n"
             "      hsz=0x%lx hrem=0x%lx fl=0x%lx/0x%lx ul=0x%lx/0x%lx fc={0x%lx,0x%lx,0x%lx} fc2={0x%lx,0x%lx,0x%lx} rfp=0x%lx vsz=0x%lx avb0=0x%lx l2_40=0x%lx l2_41=0x%lx gud=0x%lx unlock=0x%lx arena=0x%lx(flags=0x%lx base=0x%lx size=0x%lx bm=0x%lx) stk=0x%lx/0x%lx/0x%lx/0x%lx/0x%lx/0x%lx\n",
             (unsigned long)cpu->env.pc,
