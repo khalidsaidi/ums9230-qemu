@@ -411,6 +411,17 @@ static void inject_vboot(void *opaque)
             address_space_read(&address_space_memory, 0x80700000ULL + i, MEMTXATTRS_UNSPECIFIED, &h, 8);
             address_space_write(&address_space_memory, 0x8060c000ULL + i, MEMTXATTRS_UNSPECIFIED, &h, 8);
         }
+        /* vbmeta header is big-endian; bswap algorithm_type (+0x1c, 32-bit) and the
+         * 64-bit offset/size fields (+0x20..+0x68) so 0x6a364 sees algorithm<=6. */
+        { uint32_t a32 = 0; address_space_read(&address_space_memory, 0x8060c01cULL, MEMTXATTRS_UNSPECIFIED, &a32, 4);
+          a32 = __builtin_bswap32(a32);
+          address_space_write(&address_space_memory, 0x8060c01cULL, MEMTXATTRS_UNSPECIFIED, &a32, 4); }
+        for (int off = 0x20; off <= 0x68; off += 8) {
+            uint64_t f64 = 0;
+            address_space_read(&address_space_memory, 0x8060c000ULL + off, MEMTXATTRS_UNSPECIFIED, &f64, 8);
+            f64 = __builtin_bswap64(f64);
+            address_space_write(&address_space_memory, 0x8060c000ULL + off, MEMTXATTRS_UNSPECIFIED, &f64, 8);
+        }
         { uint64_t a = 0, m = 0;
           address_space_read(&address_space_memory, 0x8060c01cULL, MEMTXATTRS_UNSPECIFIED, &a, 8);
           address_space_read(&address_space_memory, 0x8060c058ULL, MEMTXATTRS_UNSPECIFIED, &m, 8);
