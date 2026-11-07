@@ -438,7 +438,9 @@ static void inject_vboot(void *opaque)
     cpu->env.xregs[0] = 0xffffffffe060d000ULL; /* input struct (VA) */
     cpu->env.xregs[1] = 0xffffffffe060d000ULL; /* mirror in x1 for clobber test */
     cpu->env.xregs[2] = 0xffffffffe060d000ULL; /* mirror in x2 (x1 is clobbered by adrp at 0x713fc) */
-    fprintf(stderr, "[DBG] inject: x0=0x%lx\n", (unsigned long)cpu->env.xregs[0]);
+    fprintf(stderr, "[DBG] inject: x0=0x%lx x1=0x%lx x2=0x%lx x3=0x%lx\n",
+            (unsigned long)cpu->env.xregs[0], (unsigned long)cpu->env.xregs[1],
+            (unsigned long)cpu->env.xregs[2], (unsigned long)cpu->env.xregs[3]);
     cpu->env.xregs[30] = 0xffffffffe0001888ULL; /* x30 = return addr (idle loop) */
     cpu->env.cp15.vbar_el[1] = 0xffffffffe0001000ULL; /* vector table */
     cpu->env.cp15.tcr_el[1] = 0x2b52335a4ULL;  /* T1SZ=35 TG1=4KB */
